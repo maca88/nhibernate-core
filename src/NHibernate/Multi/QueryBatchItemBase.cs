@@ -214,6 +214,7 @@ namespace NHibernate.Multi
 					var lockModeArray = loader.GetLockModes(queryParameters.LockModes);
 					var optionalObjectKey = Loader.Loader.GetOptionalObjectKey(queryParameters, Session);
 					var tmpResults = new List<object>();
+					var queryCacheBuilder = new QueryCacheResultBuilder(loader, Session);
 
 					for (var count = 0; count < maxRows && reader.Read(); count++)
 					{
@@ -229,7 +230,8 @@ namespace NHibernate.Multi
 								hydratedObjects[i],
 								keys,
 								true,
-								forcedResultTransformer
+								forcedResultTransformer,
+								queryCacheBuilder
 							);
 						if (loader.IsSubselectLoadingEnabled)
 						{
@@ -242,7 +244,7 @@ namespace NHibernate.Multi
 
 					queryInfo.Result = tmpResults;
 					if (queryInfo.CanPutToCache)
-						queryInfo.ResultToCache = tmpResults;
+						queryInfo.ResultToCache = queryCacheBuilder.Result;
 
 					reader.NextResult();
 				}
@@ -268,6 +270,12 @@ namespace NHibernate.Multi
 
 				if (queryInfo.IsCacheable)
 				{
+					if (queryInfo.IsResultFromCache)
+					{
+						var queryCacheBuilder = new QueryCacheResultBuilder(queryInfo.Loader, Session);
+						queryInfo.Result = queryCacheBuilder.GetResultList(queryInfo.Result);
+					}
+
 					// This transformation must not be applied to ResultToCache.
 					queryInfo.Result =
 						queryInfo.Loader.TransformCacheableResults(
