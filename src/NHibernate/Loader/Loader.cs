@@ -176,7 +176,6 @@ namespace NHibernate.Loader
 		/// An (optional) persister for a collection to be initialized; only collection loaders
 		/// return a non-null value
 		/// </summary>
-		// 6.0 TODO: Make it public
 		protected virtual ICollectionPersister[] CollectionPersisters
 		{
 			get { return null; }
@@ -228,12 +227,6 @@ namespace NHibernate.Loader
 			sql = ApplyLocks(sql, parameters.LockModes, dialect);
 
 			return Factory.Settings.IsCommentsEnabled ? PrependComment(sql, parameters) : sql;
-		}
-
-		// 6.0 TODO: Remove and replace its usages with CollectionPersisters property
-		internal ICollectionPersister[] GetCollectionPersisters()
-		{
-			return CollectionPersisters;
 		}
 
 		private static SqlString PrependComment(SqlString sql, QueryParameters parameters)
@@ -388,7 +381,7 @@ namespace NHibernate.Loader
 				GetRow(resultSet, persisters, keys, queryParameters.OptionalObject, optionalObjectKey, lockModeArray,
 					   hydratedObjects, session, !returnProxies);
 
-			var collectionKeys = ReadCollectionElements(row, resultSet, session);
+			var collections = ReadCollectionElements(row, resultSet, session);
 
 			if (returnProxies)
 			{
@@ -422,7 +415,7 @@ namespace NHibernate.Loader
 					   : forcedResultTransformer.TransformTuple(GetResultRow(row, resultSet, session),
 																ResultRowAliases);
 
-			queryCacheResultBuilder?.AddRow(result, row, collectionKeys);
+			queryCacheResultBuilder?.AddRow(result, row, collections);
 
 			return result;
 		}
@@ -430,7 +423,7 @@ namespace NHibernate.Loader
 		/// <summary>
 		/// Read any collection elements contained in a single row of the result set
 		/// </summary>
-		private object[] ReadCollectionElements(object[] row, DbDataReader resultSet, ISessionImplementor session)
+		private IPersistentCollection[] ReadCollectionElements(object[] row, DbDataReader resultSet, ISessionImplementor session)
 		{
 			//TODO: make this handle multiple collection roles!
 
@@ -438,7 +431,7 @@ namespace NHibernate.Loader
 
 			if (collectionPersisters != null)
 			{
-				var result = new object[collectionPersisters.Length];
+				var result = new IPersistentCollection[collectionPersisters.Length];
 				ICollectionAliases[] descriptors = CollectionAliases;
 				int[] collectionOwners = CollectionOwners;
 
@@ -806,7 +799,7 @@ namespace NHibernate.Loader
 		/// <summary>
 		/// Read one collection element from the current row of the ADO.NET result set
 		/// </summary>
-		private static object ReadCollectionElement(object optionalOwner, object optionalKey, ICollectionPersister persister,
+		private static IPersistentCollection ReadCollectionElement(object optionalOwner, object optionalKey, ICollectionPersister persister,
 												  ICollectionAliases descriptor, DbDataReader rs, ISessionImplementor session)
 		{
 			IPersistenceContext persistenceContext = session.PersistenceContext;
@@ -843,7 +836,7 @@ namespace NHibernate.Loader
 					rowCollection.ReadFrom(rs, persister, descriptor, owner);
 				}
 
-				return collectionRowKey;
+				return rowCollection;
 			}
 			else if (optionalKey != null)
 			{
@@ -855,9 +848,9 @@ namespace NHibernate.Loader
 				{
 					Log.Debug("result set contains (possibly empty) collection: {0}", MessageHelper.CollectionInfoString(persister, optionalKey));
 				}
-				persistenceContext.LoadContexts.GetCollectionLoadContext(rs).GetLoadingCollection(persister, optionalKey);
+
 				// handle empty collection
-				return optionalKey;
+				return persistenceContext.LoadContexts.GetCollectionLoadContext(rs).GetLoadingCollection(persister, optionalKey);
 			}
 
 			// else no collection element, but also no owner
@@ -1716,7 +1709,7 @@ namespace NHibernate.Loader
 			IQueryCache queryCache = _factory.GetQueryCache(queryParameters.CacheRegion);
 
 			QueryKey key = GenerateQueryKey(session, queryParameters);
-			var queryCacheBuilder = new QueryCacheResultBuilder(this, session);
+			var queryCacheBuilder = new QueryCacheResultBuilder(this);
 
 			IList result = GetResultFromQueryCache(session, queryParameters, querySpaces, queryCache, key);
 
