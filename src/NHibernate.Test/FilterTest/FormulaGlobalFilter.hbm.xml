@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2"
+                   assembly="NHibernate.Test"
+                   namespace="NHibernate.Test.FilterTest">
+
+  <class name="OrderStatus">
+    <cache usage="nonstrict-read-write" include="non-lazy" />
+    <id name="Code">
+      <generator class="assigned" />
+    </id>
+    <property name="Name" lazy="true" update="false" insert="false" formula="(SELECT COALESCE((SELECT l.Name FROM OrderStatusLanguage l WHERE l.OrderStatusCode = Code AND l.LanguageCode = :Language.Current), (SELECT l.Name FROM OrderStatusLanguage l WHERE l.OrderStatusCode = code AND l.LanguageCode = :Language.Fallback)))" />
+    <set cascade="all-delete-orphan" inverse="true" name="Names">
+      <key column="OrderStatusCode" not-null="true" />
+      <one-to-many class="OrderStatusLanguage" />
+    </set>
+  </class>
+
+  <class name="OrderStatusLanguage">
+    <id name="Id" unsaved-value="0">
+      <generator class="native"/>
+    </id>
+    <property name="Name" />
+    <property name="LanguageCode" />
+    <many-to-one name="OrderStatus" column="OrderStatusCode" class="OrderStatus" not-null="true" />
+  </class>
+
+  <filter-def name="Language">
+    <filter-param name="Current" type="string"/>
+    <filter-param name="Fallback" type="string"/>
+  </filter-def>
+
+</hibernate-mapping>
