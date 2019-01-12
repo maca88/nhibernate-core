@@ -24,12 +24,12 @@ namespace NHibernate.Type
 
 		public override object Get(DbDataReader rs, int index, ISessionImplementor session)
 		{
-			return Convert.ToDecimal(rs[index]);
+			return rs.GetDecimal(index);
 		}
 
 		public override object Get(DbDataReader rs, string name, ISessionImplementor session)
 		{
-			return Convert.ToDecimal(rs[name]);
+			return rs.GetDecimal(rs.GetOrdinal(name));
 		}
 
 		public override System.Type ReturnedClass

@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using NHibernate.Persister.Entity;
+using NHibernate.SqlCommand;
 
 namespace NHibernate.Persister.Collection
 {
@@ -90,5 +93,38 @@ namespace NHibernate.Persister.Collection
 		/// <returns>Appropriate table alias.</returns>
 		[Obsolete("Use directly the alias parameter value instead")]
 		string GenerateTableAliasForKeyColumns(string alias);
+	}
+
+	public static class QueryableCollectionExtensions
+	{
+		/// <summary>
+		/// Generate a select fragment containing collection index and element columns
+		/// </summary>
+		// 6.0 TODO: Move into IQueryableCollection
+		public static SelectFragment GetSelectFragment(this IQueryableCollection queryable, string alias, string columnSuffix)
+		{
+			if (queryable is AbstractCollectionPersister collectionPersister)
+			{
+				return collectionPersister.GetSelectFragment(alias, columnSuffix);
+			}
+
+			var renderedText = queryable.SelectFragment(alias, columnSuffix);
+			var identifierAlias = queryable.GetIdentifierColumnAlias(null);
+			var indexAliases = queryable.GetIndexColumnAliases(null);
+			var columnAliases = queryable.GetKeyColumnAliases(null)
+			                             .Union(queryable.GetElementColumnAliases(null));
+			if (indexAliases != null)
+			{
+				columnAliases = columnAliases.Union(indexAliases);
+			}
+
+			if (identifierAlias != null)
+			{
+				columnAliases = columnAliases.Union(new[] {identifierAlias});
+			}
+
+			return new SelectFragment(queryable.Factory.Dialect, renderedText, columnAliases.ToList())
+				.SetSuffix(columnSuffix);
+		}
 	}
 }

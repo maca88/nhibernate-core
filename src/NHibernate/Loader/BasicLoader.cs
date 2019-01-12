@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NHibernate.Engine;
 using NHibernate.Persister.Collection;
 using NHibernate.Persister.Entity;
@@ -12,12 +13,18 @@ namespace NHibernate.Loader
 
 		private IEntityAliases[] descriptors;
 		private ICollectionAliases[] collectionDescriptors;
+		private IEntityColumnIndexes[] entityColumnIndexes;
 
 		public BasicLoader(ISessionFactoryImplementor factory) : base(factory) {}
 
 		protected override sealed IEntityAliases[] EntityAliases
 		{
 			get { return descriptors; }
+		}
+
+		protected override sealed IEntityColumnIndexes[] EntityColumnIndexes
+		{
+			get { return entityColumnIndexes; }
 		}
 
 		protected override sealed ICollectionAliases[] CollectionAliases
@@ -28,14 +35,20 @@ namespace NHibernate.Loader
 		protected abstract string[] Suffixes { get; }
 		protected abstract string[] CollectionSuffixes { get; }
 
+		protected virtual IReadOnlyList<string> OrderedAliases => null;
+
 		protected override void PostInstantiate()
 		{
 			ILoadable[] persisters = EntityPersisters;
 			string[] suffixes = Suffixes;
 			descriptors = new IEntityAliases[persisters.Length];
+			entityColumnIndexes = new IEntityColumnIndexes[persisters.Length];
 			for (int i = 0; i < descriptors.Length; i++)
 			{
 				descriptors[i] = new DefaultEntityAliases(persisters[i], suffixes[i]);
+				entityColumnIndexes[i] = OrderedAliases != null
+					? new EntityColumnIndexes(persisters[i], suffixes[i], OrderedAliases)
+					: null;
 			}
 
 			ICollectionPersister[] collectionPersisters = CollectionPersisters;

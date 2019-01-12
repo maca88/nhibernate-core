@@ -3,6 +3,43 @@ using NHibernate.Persister.Entity;
 namespace NHibernate.Loader
 {
 	/// <summary>
+	/// Metadata describing the SQL result set column indexes
+	/// for a particular entity
+	/// </summary>
+	public interface IEntityColumnIndexes
+	{
+		/// <summary>
+		/// The result set column indexes for the primary key columns
+		/// </summary>
+		int[] KeyIndexes { get; }
+
+		/// <summary>
+		/// The result set column index for the discriminator columns
+		/// </summary>
+		int? DiscriminatorIndex { get; }
+
+		/// <summary>
+		/// The result set column indexes for the version columns
+		/// </summary>
+		int[] VersionIndexes { get; }
+
+		/// <summary>
+		/// The result set column index for the Oracle row id
+		/// </summary>
+		int? RowIdIndex { get; }
+
+		/// <summary>
+		/// The result set column indexes for the property columns
+		/// </summary>
+		int[][] PropertiesIndexes { get; }
+
+		/// <summary>
+		/// The result set column indexes for the property columns of a subclass
+		/// </summary>
+		int[][] GetPropertiesIndexes(ILoadable persister);
+	}
+
+	/// <summary>
 	/// Metadata describing the SQL result set column aliases
 	/// for a particular entity
 	/// </summary>

@@ -25,7 +25,14 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 		{
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public override void SetScalarColumnText(int i)
+		{
+			throw new InvalidOperationException("An IndexNode cannot generate column text!");
+		}
+
+		public override string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
 		{
 			throw new InvalidOperationException("An IndexNode cannot generate column text!");
 		}

@@ -139,6 +139,9 @@ namespace NHibernate.Loader
 		/// </summary>
 		protected abstract IEntityAliases[] EntityAliases { get; }
 
+		// 6.0 TODO: Make it abstract
+		protected virtual IEntityColumnIndexes[] EntityColumnIndexes => new IEntityColumnIndexes[EntityAliases.Length];
+
 		protected abstract ICollectionAliases[] CollectionAliases { get; }
 
 		/// <summary>
@@ -885,7 +888,9 @@ namespace NHibernate.Loader
 			else
 			{
 				IType idType = persister.IdentifierType;
-				resultId = idType.NullSafeGet(rs, EntityAliases[i].SuffixedKeyAliases, session, null);
+				resultId = EntityColumnIndexes[i] != null 
+					? idType.NullSafeGet(rs, EntityColumnIndexes[i].KeyIndexes, EntityAliases[i].SuffixedKeyAliases, session, null) 
+					: idType.NullSafeGet(rs, EntityAliases[i].SuffixedKeyAliases, session, null);
 
 				bool idIsResultId = id != null && resultId != null && idType.IsEqual(id, resultId, _factory);
 
@@ -912,7 +917,9 @@ namespace NHibernate.Loader
 			if (version != null)
 			{
 				IVersionType versionType = persister.VersionType;
-				object currentVersion = versionType.NullSafeGet(rs, EntityAliases[i].SuffixedVersionAliases, session, null);
+				object currentVersion = EntityColumnIndexes[i] != null
+					? versionType.NullSafeGet(rs, EntityColumnIndexes[i].VersionIndexes, EntityAliases[i].SuffixedVersionAliases, session, null)
+					: versionType.NullSafeGet(rs, EntityAliases[i].SuffixedVersionAliases, session, null);
 				if (!versionType.IsEqual(version, currentVersion))
 				{
 					if (session.Factory.Statistics.IsStatisticsEnabled)
@@ -1139,14 +1146,31 @@ namespace NHibernate.Loader
 			// safe - only needed because some types don't take proper
 			// advantage of two-phase-load (esp. components)
 			TwoPhaseLoad.AddUninitializedEntity(key, obj, persister, lockMode, !eagerPropertyFetch, session);
+			object[] values;
+			object rowId;
 
-			string[][] cols = persister == rootPersister
-								? EntityAliases[i].SuffixedPropertyAliases
-								: GetSubclassEntityAliases(i, persister);
+			if (EntityColumnIndexes[i] != null)
+			{
+				var cols = persister == rootPersister
+					? EntityColumnIndexes[i].PropertiesIndexes
+					: EntityColumnIndexes[i].GetPropertiesIndexes(persister);
+				var cols2 = persister == rootPersister
+					? EntityAliases[i].SuffixedPropertyAliases
+					: GetSubclassEntityAliases(i, persister);
 
-			object[] values = persister.Hydrate(rs, id, obj, rootPersister, cols, eagerPropertyFetch, session);
 
-			object rowId = persister.HasRowId ? rs[EntityAliases[i].RowIdAlias] : null;
+				rowId = EntityColumnIndexes[i].RowIdIndex.HasValue ? rs.GetValue(EntityColumnIndexes[i].RowIdIndex.Value) : null;
+				values = persister.Hydrate(rs, id, obj, rootPersister, cols2, eagerPropertyFetch, session);
+			}
+			else
+			{
+				string[][] cols = persister == rootPersister
+					? EntityAliases[i].SuffixedPropertyAliases
+					: GetSubclassEntityAliases(i, persister);
+
+				values = persister.Hydrate(rs, id, obj, rootPersister, cols, eagerPropertyFetch, session);
+				rowId = persister.HasRowId ? rs[EntityAliases[i].RowIdAlias] : null;
+			}
 
 			TwoPhaseLoad.PostHydrate(persister, id, values, rowId, obj, lockMode, !eagerPropertyFetch, session);
 		}

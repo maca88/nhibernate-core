@@ -333,4 +333,55 @@ namespace NHibernate.Type
 		/// <param name="mapping">The mapping.</param>
 		bool[] ToColumnNullness(object value, IMapping mapping);
 	}
+
+	public static class AbstractTypeExtensions
+	{
+		public static object NullSafeGet(
+			this IType type,
+			DbDataReader rs,
+			int[] indexes,
+			string[] names,
+			ISessionImplementor session,
+			object owner)
+		{
+			if (type is NullableType nullableType)
+			{
+				return nullableType.NullSafeGet(rs, indexes, session, owner);
+			}
+
+			return type.NullSafeGet(rs, names, session, owner);
+		}
+
+		public static object NullSafeGet(
+			this IType type,
+			DbDataReader rs,
+			int index,
+			string name,
+			ISessionImplementor session,
+			object owner)
+		{
+			if (type is NullableType nullableType)
+			{
+				return nullableType.NullSafeGet(rs, index, session, owner);
+			}
+
+			return type.NullSafeGet(rs, name, session, owner);
+		}
+
+		public static object Hydrate(
+			this IType type,
+			DbDataReader rs,
+			int[] indexes,
+			string[] names,
+			ISessionImplementor session,
+			object owner)
+		{
+			if (type is NullableType nullableType)
+			{
+				return nullableType.Hydrate(rs, indexes, session, owner);
+			}
+
+			return type.Hydrate(rs, names, session, owner);
+		}
+	}
 }

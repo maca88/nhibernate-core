@@ -73,9 +73,16 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 
 		#region ISelectExpression
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public void SetScalarColumnText(int i)
 		{
 			ColumnHelper.GenerateSingleScalarColumn(ASTFactory, this, i);
+		}
+
+		public string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+			return new[] { ColumnHelper.GenerateSingleScalarColumn(ASTFactory, this, i, aliasCreator) };
 		}
 
 		public FromElement FromElement
@@ -104,10 +111,18 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			set { _alias = value; }
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public void SetScalarColumn(int i)
 		{
 			_scalarColumnIndex = i;
 			SetScalarColumnText(i);
+		}
+
+		public string[] SetScalarColumn(int i, Func<int, int, string> aliasCreator)
+		{
+			_scalarColumnIndex = i;
+			return SetScalarColumnText(i, aliasCreator);
 		}
 
 		public int ScalarColumnIndex

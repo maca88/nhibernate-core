@@ -125,10 +125,17 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			set { _propertyPath = value; }
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public override void SetScalarColumnText(int i)
 		{
 			string[] sqlColumns = GetColumns();
 			ColumnHelper.GenerateScalarColumns(Walker.ASTFactory, this, sqlColumns, i);
+		}
+
+		public override string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+			return ColumnHelper.GenerateScalarColumns(ASTFactory, this, GetColumns(), i, aliasCreator);
 		}
 
 		public override void ResolveIndex(IASTNode parent) 

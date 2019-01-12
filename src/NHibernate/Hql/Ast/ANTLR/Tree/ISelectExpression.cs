@@ -21,13 +21,21 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 		/// (e.g. 'as col0_O_')
 		/// </summary>
 		/// <param name="i">The index of the select expression in the projection list.</param>
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		void SetScalarColumnText(int i);
+
+		string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator);
 
 		/// <summary>
 		/// Sets the index and text for select expression in the projection list.
 		/// </summary>
 		/// <param name="i">The index of the select expression in the projection list.</param>
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		void SetScalarColumn(int i);
+
+		string[] SetScalarColumn(int i, Func<int, int, string> aliasCreator);
 
 		/// <summary>
 		/// Gets index of the select expression in the projection list.

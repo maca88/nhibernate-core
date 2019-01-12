@@ -48,6 +48,8 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			get { return _scalarColumnIndex; }
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public void SetScalarColumn(int i)
 		{
 			ISelectExpression[] selectExpressions = CollectSelectExpressions();
@@ -59,6 +61,22 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			}
 		}
 
+		public string[] SetScalarColumn(int i, Func<int, int, string> aliasCreator)
+		{
+			var selectExpressions = CollectSelectExpressions();
+			var aliases = new List<string>();
+			// Invoke setScalarColumnText on each constructor argument.
+			for (var j = 0; j < selectExpressions.Length; j++)
+			{
+				var selectExpression = selectExpressions[j];
+				aliases.AddRange(selectExpression.SetScalarColumn(j, aliasCreator));
+			}
+
+			return aliases.ToArray();
+		}
+
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public void SetScalarColumnText(int i)
 		{
 			ISelectExpression[] selectExpressions = CollectSelectExpressions();
@@ -68,6 +86,20 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				ISelectExpression selectExpression = selectExpressions[j];
 				selectExpression.SetScalarColumnText(j);
 			}
+		}
+
+		public string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+			var selectExpressions = CollectSelectExpressions();
+			var aliases = new List<string>();
+			// Invoke setScalarColumnText on each constructor argument.
+			for (var j = 0; j < selectExpressions.Length; j++)
+			{
+				var selectExpression = selectExpressions[j];
+				aliases.AddRange(selectExpression.SetScalarColumnText(j, aliasCreator));
+			}
+
+			return aliases.ToArray();
 		}
 
 		public FromElement FromElement

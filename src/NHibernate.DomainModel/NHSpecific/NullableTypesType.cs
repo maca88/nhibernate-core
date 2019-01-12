@@ -30,6 +30,11 @@ namespace NHibernate.DomainModel.NHSpecific
 			}
 		}
 
+		public override object NullSafeGet(DbDataReader rs, int index, ISessionImplementor session)
+		{
+			return base.NullSafeGet(rs, index, session) ?? NullValue;
+		}
+
 		public override object Get(DbDataReader rs, string name, ISessionImplementor session)
 		{
 			return Get(rs, rs.GetOrdinal(name), session);

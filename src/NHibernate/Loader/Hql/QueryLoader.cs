@@ -42,6 +42,7 @@ namespace NHibernate.Loader.Hql
 		private readonly NullableDictionary<string, string> _sqlAliasByEntityAlias = new NullableDictionary<string, string>();
 		private int _selectLength;
 		private LockMode[] _defaultLockModes;
+		private IReadOnlyList<string> _orderedAliases;
 
 		public QueryLoader(QueryTranslatorImpl queryTranslator, ISessionFactoryImplementor factory, SelectClause selectClause)
 			: base(factory)
@@ -194,6 +195,8 @@ namespace NHibernate.Loader.Hql
 			get { return _collectionPersisters; }
 		}
 
+		protected override IReadOnlyList<string> OrderedAliases => _orderedAliases;
+
 		private void Initialize(SelectClause selectClause)
 		{
 			IList<FromElement> fromElementList = selectClause.FromElementsForLoad;
@@ -202,6 +205,7 @@ namespace NHibernate.Loader.Hql
 			_scalarColumnNames = selectClause.ColumnNames;
 			//sqlResultTypes = selectClause.getSqlResultTypes();
 			ResultTypes = selectClause.QueryReturnTypes;
+			_orderedAliases = selectClause.OrderedAliases;
 
 			_selectNewTransformer = GetSelectNewTransformer(selectClause);
 			_queryReturnAliases = selectClause.QueryReturnAliases;
@@ -249,9 +253,7 @@ namespace NHibernate.Loader.Hql
 				_sqlAliases[i] = element.TableAlias;
 				_entityAliases[i] = element.ClassAlias;
 				_sqlAliasByEntityAlias.Add(_entityAliases[i], _sqlAliases[i]);
-				// TODO should we just collect these like with the collections above?
-				_sqlAliasSuffixes[i] = (size == 1) ? "" : i + "_";
-				//			sqlAliasSuffixes[i] = element.getColumnAliasSuffix();
+				_sqlAliasSuffixes[i] = element.EntitySuffix;
 				_includeInSelect[i] = !element.IsFetch;
 				if (_includeInSelect[i])
 				{

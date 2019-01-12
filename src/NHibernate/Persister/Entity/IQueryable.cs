@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using NHibernate.Hql.Ast.ANTLR.Util;
+using NHibernate.SqlCommand;
+
 namespace NHibernate.Persister.Entity
 {
 	public enum Declarer
@@ -132,5 +137,33 @@ namespace NHibernate.Persister.Entity
 		/// inheritance mapping strategy. 
 		/// </remarks>
 		string GenerateFilterConditionAlias(string rootAlias);
+	}
+
+	public static class QueryableExtensions
+	{
+		// 6.0 TODO: Move into IQueryable
+		public static SelectFragment GetIdentifierSelectFragment(this IQueryable queryable, string name, string suffix)
+		{
+			if (queryable is AbstractEntityPersister entityPersister)
+			{
+				return entityPersister.GetIdentifierSelectFragment(name, suffix);
+			}
+
+			return new SelectFragment(queryable.Factory.Dialect)
+				.SetSuffix(suffix)
+				.AddColumns(name, queryable.IdentifierColumnNames, queryable.GetIdentifierAliases(null));
+		}
+
+		// 6.0 TODO: Move into IQueryable
+		public static SelectFragment GetPropertiesSelectFragment(this IQueryable queryable, string tableAlias, string suffix, bool allProperties)
+		{
+			if (queryable is AbstractEntityPersister entityPersister)
+			{
+				return entityPersister.GetPropertiesSelectFragment(tableAlias, suffix, allProperties);
+			}
+
+			// The caller should handle the exception
+			throw new NotSupportedException($"{queryable.GetType()} does not support GetPropertiesSelectFragment method.");
+		}
 	}
 }

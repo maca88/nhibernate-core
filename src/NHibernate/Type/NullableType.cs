@@ -175,6 +175,11 @@ namespace NHibernate.Type
 			return NullSafeGet(rs, names[0], session);
 		}
 
+		public sealed override object NullSafeGet(DbDataReader rs, int[] indexes, ISessionImplementor session, object owner)
+		{
+			return NullSafeGet(rs, indexes[0], session);
+		}
+
 		/// <summary>
 		/// Extracts the values of the fields from the DataReader
 		/// </summary>
@@ -215,13 +220,17 @@ namespace NHibernate.Type
 		/// </remarks>
 		public virtual object NullSafeGet(DbDataReader rs, string name, ISessionImplementor session)
 		{
-			int index = rs.GetOrdinal(name);
+			return NullSafeGet(rs, rs.GetOrdinal(name), session);
+		}
 
+		public virtual object NullSafeGet(DbDataReader rs, int index, ISessionImplementor session)
+		{
 			if (rs.IsDBNull(index))
 			{
 				if (IsDebugEnabled)
 				{
-					Log.Debug("returning null as column: {0}", name);
+					
+					Log.Debug("returning null as column: {0}", rs.GetName(index));
 				}
 				// TODO: add a method to NullableType.GetNullValue - if we want to
 				// use "MAGIC" numbers to indicate null values...
@@ -239,12 +248,12 @@ namespace NHibernate.Type
 					throw new ADOException(
 						string.Format(
 							"Could not cast the value in field {0} of type {1} to the Type {2}.  Please check to make sure that the mapping is correct and that your DataProvider supports this Data Type.",
-							name, rs[index].GetType().Name, GetType().Name), ice);
+							rs.GetName(index), rs[index].GetType().Name, GetType().Name), ice);
 				}
 
 				if (IsDebugEnabled)
 				{
-					Log.Debug("returning '{0}' as column: {1}", ToLoggableString(val, session.Factory), name);
+					Log.Debug("returning '{0}' as column: {1}", ToLoggableString(val, session.Factory), rs.GetName(index));
 				}
 
 				return val;
@@ -265,6 +274,11 @@ namespace NHibernate.Type
 		public sealed override object NullSafeGet(DbDataReader rs, string name, ISessionImplementor session, object owner)
 		{
 			return NullSafeGet(rs, name, session);
+		}
+
+		public sealed override object NullSafeGet(DbDataReader rs, int index, ISessionImplementor session, object owner)
+		{
+			return NullSafeGet(rs, index, session);
 		}
 
 		/// <summary>

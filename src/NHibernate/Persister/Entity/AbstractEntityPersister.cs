@@ -27,6 +27,7 @@ using Property=NHibernate.Mapping.Property;
 using NHibernate.SqlTypes;
 using System.Linq;
 using NHibernate.Bytecode;
+using NHibernate.Hql.Ast.ANTLR.Util;
 
 namespace NHibernate.Persister.Entity
 {
@@ -1442,13 +1443,22 @@ namespace NHibernate.Persister.Entity
 
 		public virtual string IdentifierSelectFragment(string name, string suffix)
 		{
+			return GetIdentifierSelectFragment(name, suffix).ToSqlStringFragment(false);
+		}
+
+		public virtual SelectFragment GetIdentifierSelectFragment(string name, string suffix)
+		{
 			return new SelectFragment(factory.Dialect)
 				.SetSuffix(suffix)
-				.AddColumns(name, IdentifierColumnNames, IdentifierAliases)
-				.ToSqlStringFragment(false);
+				.AddColumns(name, IdentifierColumnNames, IdentifierAliases);
 		}
 
 		public string PropertySelectFragment(string name, string suffix, bool allProperties)
+		{
+			return GetPropertiesSelectFragment(name, suffix, allProperties).ToSqlStringFragment();
+		}
+
+		public SelectFragment GetPropertiesSelectFragment(string tableAlias, string suffix, bool allProperties)
 		{
 			SelectFragment select = new SelectFragment(Factory.Dialect)
 				.SetSuffix(suffix)
@@ -1465,7 +1475,7 @@ namespace NHibernate.Persister.Entity
 					subclassColumnSelectableClosure[i];
 				if (selectable)
 				{
-					string subalias = GenerateTableAlias(name, columnTableNumbers[i]);
+					string subalias = GenerateTableAlias(tableAlias, columnTableNumbers[i]);
 					select.AddColumn(subalias, columns[i], columnAliases[i]);
 				}
 			}
@@ -1479,18 +1489,18 @@ namespace NHibernate.Persister.Entity
 					!IsSubclassTableSequentialSelect(formulaTableNumbers[i]);
 				if (selectable)
 				{
-					string subalias = GenerateTableAlias(name, formulaTableNumbers[i]);
+					string subalias = GenerateTableAlias(tableAlias, formulaTableNumbers[i]);
 					select.AddFormula(subalias, formulaTemplates[i], formulaAliases[i]);
 				}
 			}
 
 			if (entityMetamodel.HasSubclasses)
-				AddDiscriminatorToSelect(select, name, suffix);
+				AddDiscriminatorToSelect(select, tableAlias, suffix);
 
 			if (HasRowId)
-				select.AddColumn(name, rowIdName, Loadable.RowIdAlias);
+				select.AddColumn(tableAlias, rowIdName, Loadable.RowIdAlias);
 
-			return select.ToSqlStringFragment();
+			return select;
 		}
 
 		public object[] GetDatabaseSnapshot(object id, ISessionImplementor session)
@@ -2692,6 +2702,131 @@ namespace NHibernate.Persister.Entity
 			}
 		}
 
+		/// <summary>
+		/// Unmarshall the fields of a persistent instance from a result set,
+		/// without resolving associations or collections
+		/// </summary>
+		public object[] Hydrate(
+		    DbDataReader rs, object id, object obj, ILoadable rootLoadable,
+		    int[][] propertiesIndexes, string[][] propertiesAliases, bool allProperties, ISessionImplementor session)
+		{
+			if (log.IsDebugEnabled())
+			{
+				log.Debug("Hydrating entity: {0}", MessageHelper.InfoString(this, id, Factory));
+			}
+
+
+			
+			AbstractEntityPersister rootPersister = (AbstractEntityPersister) rootLoadable;
+
+			bool hasDeferred = rootPersister.HasSequentialSelect;
+			DbCommand sequentialSelect = null;
+			DbDataReader sequentialResultSet = null;
+			bool sequentialSelectEmpty = false;
+			int[][] sequentialPropertiesIndexes = hasDeferred
+				? rootPersister.GetSequentialSelectPropertiesIndexes(EntityName)
+				: null;
+			using (session.BeginProcess())
+			try
+			{
+				if (hasDeferred)
+				{
+					SqlString sql = rootPersister.GetSequentialSelect(EntityName);
+
+					if (sql != null)
+					{
+						//TODO: I am not so sure about the exception handling in this bit!
+						sequentialSelect = session.Batcher.PrepareCommand(CommandType.Text, sql, IdentifierType.SqlTypes(factory));
+						rootPersister.IdentifierType.NullSafeSet(sequentialSelect, id, 0, session);
+						sequentialResultSet = session.Batcher.ExecuteReader(sequentialSelect);
+						if (!sequentialResultSet.Read())
+						{
+							// TODO: Deal with the "optional" attribute in the <join> mapping;
+							// this code assumes that optional defaults to "true" because it
+							// doesn't actually seem to work in the fetch="join" code
+							//
+							// Note that actual proper handling of optional-ality here is actually
+							// more involved than this patch assumes.  Remember that we might have
+							// multiple <join/> mappings associated with a single entity.  Really
+							// a couple of things need to happen to properly handle optional here:
+							//  1) First and foremost, when handling multiple <join/>s, we really
+							//      should be using the entity root table as the driving table;
+							//      another option here would be to choose some non-optional joined
+							//      table to use as the driving table.  In all likelihood, just using
+							//      the root table is much simplier
+							//  2) Need to add the FK columns corresponding to each joined table
+							//      to the generated select list; these would then be used when
+							//      iterating the result set to determine whether all non-optional
+							//      data is present
+							// My initial thoughts on the best way to deal with this would be
+							// to introduce a new SequentialSelect abstraction that actually gets
+							// generated in the persisters (ok, SingleTable...) and utilized here.
+							// It would encapsulated all this required optional-ality checking...
+							sequentialSelectEmpty = true;
+						}
+					}
+				}
+
+				string[] propNames = PropertyNames;
+				IType[] types = PropertyTypes;
+				object[] values = new object[types.Length];
+				bool[] laziness = PropertyLaziness;
+				string[] propSubclassNames = SubclassPropertySubclassNameClosure;
+
+				for (int i = 0; i < types.Length; i++)
+				{
+					if (!propertySelectable[i])
+					{
+						values[i] = BackrefPropertyAccessor.Unknown;
+					}
+					else if (allProperties || !laziness[i])
+					{
+						//decide which ResultSet to get the property value from:
+						bool propertyIsDeferred = hasDeferred && rootPersister.IsSubclassPropertyDeferred(propNames[i], propSubclassNames[i]);
+						if (propertyIsDeferred && sequentialSelectEmpty)
+						{
+							values[i] = null;
+						}
+						else
+						{
+							var propertyResultSet = propertyIsDeferred ? sequentialResultSet : rs;
+							var names = propertyIsDeferred ? propertyColumnAliases[i] : propertiesAliases[i];
+							var indexes = propertyIsDeferred ? sequentialPropertiesIndexes[i] : propertiesIndexes[i];
+							values[i] = types[i].Hydrate(propertyResultSet, indexes, names, session, obj);
+						}
+					}
+					else
+					{
+						values[i] = LazyPropertyInitializer.UnfetchedProperty;
+					}
+				}
+				/*
+				var j = 0;
+				return new object[]
+				{
+					!propertySelectable[j] && j++ > 0
+						? BackrefPropertyAccessor.Unknown
+						: (!allProperties && laziness[j] && j++ > 0
+							? LazyPropertyInitializer.UnfetchedProperty
+							: types[j++].Hydrate(null, null, null, session, obj))
+				};*/
+
+				if (sequentialResultSet != null)
+				{
+					sequentialResultSet.Close();
+				}
+
+				return values;
+			}
+			finally
+			{
+				if (sequentialSelect != null)
+				{
+					session.Batcher.CloseCommand(sequentialSelect, sequentialResultSet);
+				}
+			}
+		}
+
 		protected bool UseInsertSelectIdentity()
 		{
 			return !UseGetGeneratedKeys() && Factory.Dialect.SupportsInsertSelectIdentity;
@@ -2703,6 +2838,11 @@ namespace NHibernate.Persister.Entity
 		}
 
 		protected virtual SqlString GetSequentialSelect(string entityName)
+		{
+			throw new NotSupportedException("no sequential selects");
+		}
+
+		protected virtual int[][] GetSequentialSelectPropertiesIndexes(string entityName)
 		{
 			throw new NotSupportedException("no sequential selects");
 		}

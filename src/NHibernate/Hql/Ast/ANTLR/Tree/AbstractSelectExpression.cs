@@ -19,10 +19,18 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			set { _alias = value; }
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public void SetScalarColumn(int i)
 		{
 			_scalarColumnIndex = i;
 			SetScalarColumnText(i);
+		}
+
+		public string[] SetScalarColumn(int i, Func<int, int, string> aliasCreator)
+		{
+			_scalarColumnIndex = i;
+			return SetScalarColumnText(i, aliasCreator);
 		}
 
 		public int ScalarColumnIndex
@@ -56,6 +64,16 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			}
 		}
 
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public abstract void SetScalarColumnText(int i);
+
+		public virtual string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+#pragma warning disable 618
+			SetScalarColumnText(i);
+#pragma warning restore 618
+			return new string[0];
+		}
 	}
 }

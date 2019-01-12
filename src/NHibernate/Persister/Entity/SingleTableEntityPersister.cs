@@ -69,6 +69,7 @@ namespace NHibernate.Persister.Entity
 		private readonly Dictionary<string, int> propertyTableNumbersByNameAndSubclass = new Dictionary<string, int>();
 
 		private readonly Dictionary<string, SqlString> sequentialSelectStringsByEntityName = new Dictionary<string, SqlString>();
+		private readonly Dictionary<string, int[][]> _sequentialSelectPropertiesIndexesByEntityName = new Dictionary<string, int[][]>();
 
 		private static readonly object NullDiscriminator = new object();
 		private static readonly object NotNullDiscriminator = new object();
@@ -718,7 +719,13 @@ possible solutions:
 			return result;
 		}
 
-		private SqlString GenerateSequentialSelect(ILoadable persister)
+		protected override int[][] GetSequentialSelectPropertiesIndexes(string entityName)
+		{
+			_sequentialSelectPropertiesIndexesByEntityName.TryGetValue(entityName, out var result);
+			return result;
+		}
+
+		private SqlString GenerateSequentialSelect(ILoadable persister, List<string> aliases)
 		{
 			//note that this method could easily be moved up to BasicEntityPersister,
 			//if we ever needed to reuse it from other subclasses
@@ -760,6 +767,8 @@ possible solutions:
 					formulaNumbers.Add(i);
 				}
 			}
+
+			aliases.AddRange(CreateSelect(columnNumbers.ToArray(), formulaNumbers.ToArray()).GetColumnAliases());
 
 			//render the SQL
 			return RenderSelect(tableNumbers.ToArray(), columnNumbers.ToArray(), formulaNumbers.ToArray());
@@ -829,11 +838,52 @@ possible solutions:
 					if (!loadable.IsAbstract)
 					{
 						//perhaps not really necessary...
-						SqlString sequentialSelect = GenerateSequentialSelect(loadable);
+						var aliases = new List<string>();
+						SqlString sequentialSelect = GenerateSequentialSelect(loadable, aliases);
 						sequentialSelectStringsByEntityName[entityNames[i]] = sequentialSelect;
+
+						var aliasIndexes = new Dictionary<string, int>();
+						for (var j = 0; j < aliases.Count; j++)
+						{
+							aliasIndexes.Add(aliases[j], j);
+						}
+						var propertiesIndexes = new int[SubclassPropertyNameClosure.Length][];
+						for (var j = 0; j < SubclassPropertyNameClosure.Length; j++)
+						{
+							propertiesIndexes[j] = SafeGetAliasIndexes(aliasIndexes, GetSubclassPropertyColumnAliases(SubclassPropertyNameClosure[j], null));
+						}
+
+						_sequentialSelectPropertiesIndexesByEntityName.Add(entityNames[i], propertiesIndexes);
 					}
 				}
 			}
+		}
+
+		private int[] SafeGetAliasIndexes(Dictionary<string, int> aliasIndexes, string[] aliases)
+		{
+			var indexes = new int[aliases.Length];
+			for (var i = 0; i < indexes.Length; i++)
+			{
+				var value = SafeGetAliasIndex(aliasIndexes, aliases[i]);
+				if (!value.HasValue)
+				{
+					return null;
+				}
+
+				indexes[i] = value.Value;
+			}
+
+			return indexes;
+		}
+
+		private int? SafeGetAliasIndex(Dictionary<string, int> aliasIndexes, string alias)
+		{
+			if (!aliasIndexes.TryGetValue(alias, out var index))
+			{
+				return null;
+			}
+
+			return index;
 		}
 	}
 }

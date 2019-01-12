@@ -125,6 +125,11 @@ namespace NHibernate.Type
 			return NullSafeGet(rs, names, session, owner);
 		}
 
+		public virtual object Hydrate(DbDataReader rs, int[] indexes, ISessionImplementor session, object owner)
+		{
+			return NullSafeGet(rs, indexes, session, owner);
+		}
+
 		/// <summary>
 		/// Maps identifiers to Entities or Collections. 
 		/// </summary>
@@ -258,8 +263,20 @@ namespace NHibernate.Type
 		/// <inheritdoc />
 		public abstract object NullSafeGet(DbDataReader rs, string[] names, ISessionImplementor session, object owner);
 
+		// 6.0 TODO: Make it abstract
+		public virtual object NullSafeGet(DbDataReader rs, int[] indexes, ISessionImplementor session, object owner)
+		{
+			return null;
+		}
+
 		/// <inheritdoc />
 		public abstract object NullSafeGet(DbDataReader rs, string name, ISessionImplementor session, Object owner);
+
+		// 6.0 TODO: Make it abstract
+		public virtual object NullSafeGet(DbDataReader rs, int index, ISessionImplementor session, object owner)
+		{
+			return null;
+		}
 
 		/// <inheritdoc />
 		public abstract void NullSafeSet(DbCommand st, object value, int index, bool[] settable, ISessionImplementor session);

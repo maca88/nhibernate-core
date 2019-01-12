@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using NHibernate.Persister.Collection;
 using NHibernate.Persister.Entity;
+using NHibernate.SqlCommand;
 using NHibernate.Type;
 using NHibernate.Util;
 
@@ -100,6 +101,8 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				return fromElement.ComponentType.Subtypes[index];
 			}
 
+			//Since 5.3
+			[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 			public override string RenderScalarIdentifierSelect(int i)
 			{
 				String[] cols = GetBasePropertyMapping().ToColumns(fromElement.TableAlias, fromElement.ComponentProperty);
@@ -115,6 +118,20 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 					buf.Append(column).Append(" as ").Append(NameGenerator.ScalarName(i, j));
 				}
 				return buf.ToString();
+			}
+
+			public override SelectFragment GetScalarIdentifierSelectFragment(int i, Func<int, int, string> aliasCreator)
+			{
+				var cols = GetBasePropertyMapping().ToColumns(fromElement.TableAlias, fromElement.ComponentProperty);
+				var factory = Queryable?.Factory ?? QueryableCollection?.Factory ?? throw new QueryException("not related to an entity or collection");
+				var fragment = new SelectFragment(factory.Dialect);
+				// For property references generate <tablealias>.<columnname> as <projectionalias>
+				for (var j = 0; j < cols.Length; j++)
+				{
+					fragment.AddColumn(null, cols[j], aliasCreator(i, j));
+				}
+
+				return fragment;
 			}
 
 			protected IPropertyMapping GetBasePropertyMapping()
