@@ -142,7 +142,7 @@ namespace NHibernate.Impl
 
 							rowCount++;
 							object result = await (translator.Loader.GetRowFromResultSetAsync(
-								reader, session, parameter, lockModeArray, optionalObjectKey, hydratedObjects[i], keys, true, cancellationToken)).ConfigureAwait(false);
+								reader, session, parameter, lockModeArray, optionalObjectKey, hydratedObjects[i], keys, true, null, null, cancellationToken)).ConfigureAwait(false);
 							tempResults.Add(result);
 
 							if (createSubselects[i])

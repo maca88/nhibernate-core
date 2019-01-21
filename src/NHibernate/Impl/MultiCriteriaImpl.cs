@@ -257,7 +257,7 @@ namespace NHibernate.Impl
 
 							object o =
 								loader.GetRowFromResultSet(reader, session, queryParameters, loader.GetLockModes(queryParameters.LockModes),
-																					 null, hydratedObjects[i], keys, true);
+																					 null, hydratedObjects[i], keys, true, null, null);
 							if (createSubselects[i])
 							{
 								subselectResultKeys[i].Add(keys);
