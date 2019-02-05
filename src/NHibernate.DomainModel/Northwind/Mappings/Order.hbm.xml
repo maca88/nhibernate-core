@@ -3,6 +3,7 @@
 									 namespace="NHibernate.DomainModel.Northwind.Entities" assembly="NHibernate.DomainModel">
 
 	<class name="Order" table="Orders">
+	  <cache usage="nonstrict-read-write"/>
 		<id name="OrderId" column="OrderId" type="int" unsaved-value="-1" 
 				access="field.camelcase-underscore">
 			<generator class="assigned" />
@@ -52,11 +53,12 @@
 			
 		</component>
 
-		<set name="OrderLines" lazy="true" access="field.camelcase-underscore"
+		<bag name="OrderLines" lazy="true" access="field.camelcase-underscore"
 				 cascade="all-delete-orphan" inverse="true">
+		  <cache usage="nonstrict-read-write"/>
 			<key column="OrderId"/>
 			<one-to-many class="OrderLine"/>
-		</set>
+		</bag>
 		
 	</class>
 	

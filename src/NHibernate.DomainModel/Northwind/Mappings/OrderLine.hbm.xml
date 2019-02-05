@@ -3,7 +3,7 @@
 									 namespace="NHibernate.DomainModel.Northwind.Entities" assembly="NHibernate.DomainModel">
 
 	<class name="OrderLine" table="OrderLines">
-
+	  <cache usage="nonstrict-read-write"/>
 		<id name="Id" column="OrderLineId" type="long" unsaved-value="-1" 
 				access="field.camelcase-underscore">
 			<generator class="native" />

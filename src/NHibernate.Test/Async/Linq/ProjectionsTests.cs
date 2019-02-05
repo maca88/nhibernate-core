@@ -297,7 +297,7 @@ namespace NHibernate.Test.Linq
 		public async Task ProjectKnownTypeWithCollectionAsync()
 		{
 			var query = from o in db.Orders
-						select new ExpandedWrapper<Order, ISet<OrderLine>>
+						select new ExpandedWrapper<Order, IList<OrderLine>>
 							{
 								ExpandedElement = o,
 								ProjectedProperty0 = o.OrderLines,

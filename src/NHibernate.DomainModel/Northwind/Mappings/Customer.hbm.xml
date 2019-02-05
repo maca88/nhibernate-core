@@ -3,6 +3,7 @@
 									 namespace="NHibernate.DomainModel.Northwind.Entities" assembly="NHibernate.DomainModel">
 
 	<class name="Customer" table="Customers">
+	  <cache usage="nonstrict-read-write"/>
 		<id name="CustomerId" column="CustomerId" type="string" unsaved-value="-1" 
 				access="field.camelcase-underscore">
 			<generator class="assigned" />
@@ -45,6 +46,7 @@
 
 		<set name="Orders" lazy="true" access="field.camelcase-underscore"
 				 cascade="all-delete-orphan" inverse="true">
+		  <cache usage="nonstrict-read-write"/>
 			<key column="CustomerId"/>
 			<one-to-many class="Order"/>
 		</set>		
