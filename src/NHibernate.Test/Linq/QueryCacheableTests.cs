@@ -1,5 +1,6 @@
 ﻿using System.Linq;
 using NHibernate.Cfg;
+using NHibernate.DomainModel.Northwind.Entities;
 using NHibernate.Linq;
 using NUnit.Framework;
 
@@ -193,6 +194,52 @@ namespace NHibernate.Test.Linq
 			Assert.That(Sfi.Statistics.QueryExecutionCount, Is.EqualTo(2), "Unexpected execution count");
 			Assert.That(Sfi.Statistics.QueryCachePutCount, Is.EqualTo(1), "Unexpected cache put count");
 			Assert.That(Sfi.Statistics.QueryCacheHitCount, Is.EqualTo(1), "Unexpected cache hit count");
+		}
+
+		[Test]
+		public void CartesianProduct()
+		{
+			Sfi.Statistics.Clear();
+			Sfi.EvictQueries();
+
+			Order order;
+
+			using (var s = Sfi.OpenSession())
+			{
+				order = s.Query<Order>()
+				         .FetchMany(x => x.OrderLines)
+				         .Where(x => x.OrderId == 10248)
+				         .ToList()
+				         .First();
+			}
+
+			Assert.That(order.OrderLines, Has.Count.EqualTo(3));
+
+			using (var s = Sfi.OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				order = s.Query<Order>()
+				         .WithOptions(o => o.SetCacheable(true))
+				         .Fetch(x => x.Customer).ThenFetchMany(x => x.Orders)
+				         .FetchMany(x => x.OrderLines)
+				         .Where(x => x.OrderId == 10248)
+				         .ToList()
+				         .First();
+
+				t.Commit();
+			}
+
+			Assert.That(order.OrderLines, Has.Count.EqualTo(15));
+
+			using (var s = Sfi.OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				order = s.Get<Order>(10248);
+				NHibernateUtil.Initialize(order.OrderLines);
+				t.Commit();
+			}
+
+			Assert.That(order.OrderLines, Has.Count.EqualTo(15));
 		}
 
 		[Test]

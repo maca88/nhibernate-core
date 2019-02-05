@@ -285,7 +285,7 @@ namespace NHibernate.Test.Linq
 		public void ProjectKnownTypeWithCollection()
 		{
 			var query = from o in db.Orders
-						select new ExpandedWrapper<Order, ISet<OrderLine>>
+						select new ExpandedWrapper<Order, IList<OrderLine>>
 							{
 								ExpandedElement = o,
 								ProjectedProperty0 = o.OrderLines,
