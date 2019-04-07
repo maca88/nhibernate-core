@@ -12,7 +12,9 @@ namespace NHibernate.DomainModel.Northwind.Entities
         public virtual Animal Father { get; set; }
         public virtual IList<Animal> Children { get; set; }
         public virtual string SerialNumber { get; set; }
-    }
+		public virtual string FatherSerialNumber => Father?.SerialNumber;
+		public virtual bool HasFather => Father != null;
+	}
 
     public abstract class Reptile : Animal
     {

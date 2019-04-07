@@ -30,6 +30,7 @@
 
       <component name="OtherComponent" class="UserComponent2">
         <property name="OtherProperty1" type="AnsiString" />
+        <property name="OtherProperty2" type="AnsiString" formula="OtherProperty1"/>
       </component>
     </component>
   </class>

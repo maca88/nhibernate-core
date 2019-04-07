@@ -411,14 +411,20 @@ namespace NHibernate.Tuple.Entity
 
 		private void MapPropertyToIndex(Mapping.Property prop, int i)
 		{
-			propertyIndexes[prop.Name] = i;
-			Mapping.Component comp = prop.Value as Mapping.Component;
-			if (comp != null)
+			MapPropertyToIndex(null, prop, i);
+		}
+
+		private void MapPropertyToIndex(string path, Mapping.Property prop, int i)
+		{
+			propertyIndexes[!string.IsNullOrEmpty(path) ? $"{path}.{prop.Name}" : prop.Name] = i;
+			if (!(prop.Value is Mapping.Component comp))
 			{
-				foreach (Mapping.Property subprop in comp.PropertyIterator)
-				{
-					propertyIndexes[prop.Name + '.' + subprop.Name] = i;
-				}
+				return;
+			}
+
+			foreach (var subprop in comp.PropertyIterator)
+			{
+				MapPropertyToIndex(!string.IsNullOrEmpty(path) ? $"{path}.{prop.Name}" : prop.Name, subprop, i);
 			}
 		}
 

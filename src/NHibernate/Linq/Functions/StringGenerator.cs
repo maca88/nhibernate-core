@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using NHibernate.Engine;
 using NHibernate.Hql.Ast;
 using NHibernate.Linq.Visitors;
 using NHibernate.Util;
@@ -70,6 +71,23 @@ namespace NHibernate.Linq.Functions
 
 		public override HqlTreeNode BuildHql(MemberInfo member, Expression expression, HqlTreeBuilder treeBuilder, IHqlExpressionVisitor visitor)
 		{
+			if (visitor.SessionFactory is ISessionFactoryImplementor sessionFactory)
+			{
+				var sqlFunction = sessionFactory.SQLFunctionRegistry.FindSQLFunction("length");
+				if (sqlFunction == null)
+				{
+					throw new InvalidOperationException("Sql function length is not supported for the current dialect.");
+				}
+
+				var returnType = sqlFunction.ReturnType(NHibernateUtil.Int32, sessionFactory);
+				if (!NHibernateUtil.Int32.Equals(returnType))
+				{
+					return treeBuilder.Cast(
+						treeBuilder.MethodCall("length", visitor.Visit(expression).AsExpression()),
+						typeof(int));
+				}
+			}
+
 			return treeBuilder.MethodCall("length", visitor.Visit(expression).AsExpression());
 		}
 	}

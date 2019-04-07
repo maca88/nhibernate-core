@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
+using NHibernate.Hql.Ast;
 using NHibernate.Linq.Functions;
 using NHibernate.Linq.Expressions;
-using NHibernate.Util;
-using Remotion.Linq.Parsing;
+using NHibernate.Persister.Entity;
+using NHibernate.Type;
+using Remotion.Linq.Clauses.Expressions;
 
 namespace NHibernate.Linq.Visitors
 {
@@ -12,9 +15,10 @@ namespace NHibernate.Linq.Visitors
 	/// Analyze the select clause to determine what parts can be translated
 	/// fully to HQL, and some other properties of the clause.
 	/// </summary>
-	class SelectClauseHqlNominator : RelinqExpressionVisitor
+	class SelectClauseHqlNominator
 	{
 		private readonly ILinqToHqlGeneratorsRegistry _functionRegistry;
+		private readonly VisitorParameters _parameters;
 
 		/// <summary>
 		/// The expression parts that can be converted to pure HQL.
@@ -29,150 +33,340 @@ namespace NHibernate.Linq.Visitors
 		/// </summary>
 		public bool ContainsUntranslatedMethodCalls { get; private set; }
 
-		private bool _canBeCandidate;
-		Stack<bool> _stateStack;
-
 		public SelectClauseHqlNominator(VisitorParameters parameters)
 		{
+			_parameters = parameters;
 			_functionRegistry = parameters.SessionFactory.Settings.LinqToHqlGeneratorsRegistry;
 		}
 
-		internal Expression Nominate(Expression expression)
+		internal void Nominate(Expression expression)
 		{
 			HqlCandidates = new HashSet<Expression>();
 			ContainsUntranslatedMethodCalls = false;
-			_canBeCandidate = true;
-			_stateStack = new Stack<bool>();
-			_stateStack.Push(false);
-
-			return Visit(expression);
+			CanBeEvaluatedInHql(expression);
 		}
 
-		public override Expression Visit(Expression expression)
+		private bool CanBeEvaluatedInHql(Expression expression)
 		{
-			if (expression == null)
-				return null;
-
-			if (expression is NhNominatedExpression nominatedExpression)
-			{
-				// Add the nominated clause and strip the nominator wrapper from the select expression
-				var innerExpression = nominatedExpression.Expression;
-				HqlCandidates.Add(innerExpression);
-				return innerExpression;
-			}
-
-			var projectConstantsInHql = _stateStack.Peek() || expression.NodeType == ExpressionType.Equal || IsRegisteredFunction(expression);
-
-			// Set some flags, unless we already have proper values for them:
-			//    projectConstantsInHql if they are inside a method call executed server side.
-			//    ContainsUntranslatedMethodCalls if a method call must be executed locally.
-			var isMethodCall = expression.NodeType == ExpressionType.Call;
-			if (isMethodCall && (!projectConstantsInHql || !ContainsUntranslatedMethodCalls))
-			{
-				var isRegisteredFunction = IsRegisteredFunction(expression);
-				projectConstantsInHql = projectConstantsInHql || isRegisteredFunction;
-				ContainsUntranslatedMethodCalls = ContainsUntranslatedMethodCalls || !isRegisteredFunction;
-			}
-
-			_stateStack.Push(projectConstantsInHql);
-			bool saveCanBeCandidate = _canBeCandidate;
-			_canBeCandidate = true;
-
-			try
-			{
-				if (CanBeEvaluatedInHqlStatementShortcut(expression))
-				{
-					HqlCandidates.Add(expression);
-					return expression;
-				}
-
-				expression = base.Visit(expression);
-
-				if (_canBeCandidate)
-				{
-					if (CanBeEvaluatedInHqlSelectStatement(expression, projectConstantsInHql))
-					{
-						HqlCandidates.Add(expression);
-					}
-					else
-					{
-						_canBeCandidate = false;
-					}
-				}
-			}
-			finally
-			{
-				_stateStack.Pop();
-				_canBeCandidate = _canBeCandidate && saveCanBeCandidate;
-			}
-
-			return expression;
-		}
-
-		private bool IsRegisteredFunction(Expression expression)
-		{
-			if (expression.NodeType == ExpressionType.Call)
-			{
-				var methodCallExpression = (MethodCallExpression) expression;
-				IHqlGeneratorForMethod methodGenerator;
-				if (_functionRegistry.TryGetGenerator(methodCallExpression.Method, out methodGenerator))
-				{
-					return methodCallExpression.Object == null || // is static or extension method
-					       methodCallExpression.Object.NodeType != ExpressionType.Constant; // does not belong to parameter 
-				}
-			}
-			else if (expression is NhSumExpression ||
-			         expression is NhCountExpression ||
-			         expression is NhAverageExpression ||
-			         expression is NhMaxExpression ||
-			         expression is NhMinExpression)
+			// Do client side evaluation for constants
+			if (expression == null || expression.NodeType == ExpressionType.Constant)
 			{
 				return true;
 			}
-			return false;
 
+			bool canBeEvaluated;
+			switch (expression.NodeType)
+			{
+				case ExpressionType.Add:
+				case ExpressionType.AddChecked:
+				case ExpressionType.Divide:
+				case ExpressionType.Modulo:
+				case ExpressionType.Multiply:
+				case ExpressionType.MultiplyChecked:
+				case ExpressionType.Power:
+				case ExpressionType.Subtract:
+				case ExpressionType.SubtractChecked:
+				case ExpressionType.And:
+				case ExpressionType.Or:
+				case ExpressionType.ExclusiveOr:
+				case ExpressionType.LeftShift:
+				case ExpressionType.RightShift:
+				case ExpressionType.AndAlso:
+				case ExpressionType.OrElse:
+				case ExpressionType.Equal:
+				case ExpressionType.NotEqual:
+				case ExpressionType.GreaterThanOrEqual:
+				case ExpressionType.GreaterThan:
+				case ExpressionType.LessThan:
+				case ExpressionType.LessThanOrEqual:
+				case ExpressionType.Coalesce:
+				case ExpressionType.ArrayIndex:
+					canBeEvaluated = CanBeEvaluatedInHql((BinaryExpression) expression);
+					break;
+				case ExpressionType.Conditional:
+					canBeEvaluated = CanBeEvaluatedInHql((ConditionalExpression) expression);
+					break;
+				case ExpressionType.Call:
+					canBeEvaluated = CanBeEvaluatedInHql((MethodCallExpression) expression);
+					break;
+				case ExpressionType.ArrayLength:
+				case ExpressionType.Convert:
+				case ExpressionType.ConvertChecked:
+				case ExpressionType.Negate:
+				case ExpressionType.NegateChecked:
+				case ExpressionType.Not:
+				case ExpressionType.Quote:
+				case ExpressionType.TypeAs:
+				case ExpressionType.UnaryPlus:
+					canBeEvaluated = CanBeEvaluatedInHql(((UnaryExpression) expression).Operand);
+					break;
+				case ExpressionType.MemberAccess:
+					canBeEvaluated = CanBeEvaluatedInHql((MemberExpression) expression);
+					break;
+				case ExpressionType.Extension:
+					if (expression is NhNominatedExpression nominatedExpression)
+					{
+						expression = nominatedExpression.Expression;
+					}
+
+					canBeEvaluated = true; // Sub queries cannot be executed client side
+					break;
+				case ExpressionType.MemberInit:
+					canBeEvaluated = CanBeEvaluatedInHql((MemberInitExpression) expression);
+					break;
+				case ExpressionType.NewArrayInit:
+				case ExpressionType.NewArrayBounds:
+					canBeEvaluated = CanBeEvaluatedInHql((NewArrayExpression) expression);
+					break;
+				case ExpressionType.ListInit:
+					canBeEvaluated = CanBeEvaluatedInHql((ListInitExpression) expression);
+					break;
+				case ExpressionType.New:
+					canBeEvaluated = CanBeEvaluatedInHql((NewExpression) expression);
+					break;
+				case ExpressionType.Dynamic:
+					canBeEvaluated = CanBeEvaluatedInHql((DynamicExpression) expression);
+					break;
+				case ExpressionType.Invoke:
+					canBeEvaluated = CanBeEvaluatedInHql((InvocationExpression) expression);
+					break;
+				case ExpressionType.TypeIs:
+					canBeEvaluated = CanBeEvaluatedInHql(((TypeBinaryExpression) expression).Expression);
+					break;
+				default:
+					canBeEvaluated = true;
+					break;
+			}
+
+			if (canBeEvaluated)
+			{
+				HqlCandidates.Add(expression);
+			}
+
+			return canBeEvaluated;
 		}
 
-		private bool CanBeEvaluatedInHqlSelectStatement(Expression expression, bool projectConstantsInHql)
+		private bool CanBeEvaluatedInHql(MethodCallExpression methodExpression)
 		{
-			// HQL can't do New or Member Init
-			if (expression.NodeType == ExpressionType.MemberInit || 
-				expression.NodeType == ExpressionType.New || 
-				expression.NodeType == ExpressionType.NewArrayInit ||
-				expression.NodeType == ExpressionType.NewArrayBounds)
+			var canBeEvaluated = methodExpression.Object == null || // Is static or extension method
+			                     methodExpression.Object.NodeType != ExpressionType.Constant && // Does not belong to a parameter
+			                     CanBeEvaluatedInHql(methodExpression.Object);
+			foreach (var argumentExpression in methodExpression.Arguments)
+			{
+				// If one of the agruments cannot be converted to hql we have to execute the method on the client side
+				canBeEvaluated &= CanBeEvaluatedInHql(argumentExpression);
+			}
+
+			canBeEvaluated &= _functionRegistry.TryGetGenerator(methodExpression.Method, out _);
+			ContainsUntranslatedMethodCalls |= !canBeEvaluated;
+			return canBeEvaluated;
+		}
+
+		private bool CanBeEvaluatedInHql(MemberExpression memberExpression)
+		{
+			var canBeEvaluated = CanBeEvaluatedInHql(memberExpression.Expression);
+			// Check for a mapped property e.g. Count
+			if (!canBeEvaluated || _functionRegistry.TryGetGenerator(memberExpression.Member, out _))
+			{
+				return canBeEvaluated;
+			}
+
+			// Check whether the member is mapped
+			var entityName = TryGetEntityName(memberExpression, out var memberPath);
+			if (entityName == null)
+			{
+				return false; // Not mapped
+			}
+
+			var persister = _parameters.SessionFactory.GetEntityPersister(entityName);
+			var index = persister.EntityMetamodel.GetPropertyIndexOrNull(memberPath);
+			return index.HasValue || IsIdentifierMember(persister, memberPath);
+		}
+
+		private bool CanBeEvaluatedInHql(ConditionalExpression conditionalExpression)
+		{
+			var canBeEvaluated = CanBeEvaluatedInHql(conditionalExpression.Test);
+			// In Oracle, when a query that selects a parameter is executed multiple times with different parameter types,
+			// will fail to get the value from the data reader. e.g. select case when <condition> then @p0 else @p1 end.
+			// In order to prevent that, we have to execute only the condition on the server side and do the rest on the client side.
+			if (canBeEvaluated &&
+			    conditionalExpression.IfTrue.NodeType == ExpressionType.Constant &&
+			    conditionalExpression.IfFalse.NodeType == ExpressionType.Constant)
 			{
 				return false;
 			}
 
-			// Constants will only be evaluated in HQL if they're inside a method call
-			if (expression.NodeType == ExpressionType.Constant)
-			{
-				return projectConstantsInHql;
-			}
+			canBeEvaluated &= (CanBeEvaluatedInHql(conditionalExpression.IfTrue) && HqlIdent.SupportsType(conditionalExpression.IfTrue.Type)) &
+			                  (CanBeEvaluatedInHql(conditionalExpression.IfFalse) && HqlIdent.SupportsType(conditionalExpression.IfFalse.Type));
 
-			if (expression.NodeType == ExpressionType.Call)
-			{
-				// Depends if it's in the function registry
-				return IsRegisteredFunction(expression);
-			}
-
-			if (expression.NodeType == ExpressionType.Conditional)
-			{
-				// Theoretically, any conditional that returns a CAST-able primitive should be constructable in HQL.
-				// The type needs to be CAST-able because HQL wraps the CASE clause in a CAST and only supports
-				// certain types (as defined by the HqlIdent constructor that takes a System.Type as the second argument).
-				// However, this may still not cover all cases, so to limit the nomination of conditional expressions,
-				// we will only consider those which are already getting constants projected into them.
-				return projectConstantsInHql;
-			}
-
-			// Assume all is good
-			return true;
+			return canBeEvaluated;
 		}
 
-		private static bool CanBeEvaluatedInHqlStatementShortcut(Expression expression)
+		private bool CanBeEvaluatedInHql(BinaryExpression binaryExpression)
 		{
-			return expression is NhCountExpression;
+			var canBeEvaluated = CanBeEvaluatedInHql(binaryExpression.Left) &
+			                     CanBeEvaluatedInHql(binaryExpression.Right);
+
+			// Subtract datetimes on the client side as its result varies when executed on the server side.
+			// In Sql Server when using datetime2 subtract is not possbile.
+			// In Oracle a number is returned that represents the difference bewteen the two in days.
+			if (new[]
+			    {
+				    ExpressionType.Subtract,
+				    ExpressionType.SubtractChecked
+			    }.Contains(binaryExpression.NodeType) &&
+			    ContainsAnyOfTypes(new[] {binaryExpression.Left, binaryExpression.Right},
+			                       typeof(DateTime?), typeof(DateTime),
+			                       typeof(DateTimeOffset?), typeof(DateTimeOffset),
+			                       typeof(TimeSpan?), typeof(TimeSpan)))
+			{
+				return false;
+			}
+
+			// Concatenation of strings can be only done on the server side when the left and right side types match.
+			if (binaryExpression.NodeType == ExpressionType.Add &&
+			    (binaryExpression.Left.Type == typeof(string) || binaryExpression.Right.Type == typeof(string)))
+			{
+				canBeEvaluated &= binaryExpression.Left.Type == binaryExpression.Right.Type;
+			}
+
+			return canBeEvaluated;
+		}
+
+		private bool CanBeEvaluatedInHql(MemberInitExpression memberInitExpression)
+		{
+			CanBeEvaluatedInHql(memberInitExpression.NewExpression);
+			VisitMemberBindings(memberInitExpression.Bindings);
+			return false;
+		}
+
+		private bool CanBeEvaluatedInHql(DynamicExpression dynamicExpression)
+		{
+			foreach (var argument in dynamicExpression.Arguments)
+			{
+				CanBeEvaluatedInHql(argument);
+			}
+
+			return false;
+		}
+
+		private bool CanBeEvaluatedInHql(ListInitExpression listInitExpression)
+		{
+			CanBeEvaluatedInHql(listInitExpression.NewExpression);
+			foreach (var initializer in listInitExpression.Initializers)
+			{
+				foreach (var listInitArgument in initializer.Arguments)
+				{
+					CanBeEvaluatedInHql(listInitArgument);
+				}
+			}
+
+			return false;
+		}
+
+		private bool CanBeEvaluatedInHql(NewArrayExpression newArrayExpression)
+		{
+			foreach (var arrayExpression in newArrayExpression.Expressions)
+			{
+				CanBeEvaluatedInHql(arrayExpression);
+			}
+
+			return false;
+		}
+
+		private bool CanBeEvaluatedInHql(InvocationExpression invocationExpression)
+		{
+			foreach (var argument in invocationExpression.Arguments)
+			{
+				CanBeEvaluatedInHql(argument);
+			}
+
+			return false;
+		}
+
+		private bool CanBeEvaluatedInHql(NewExpression newExpression)
+		{
+			foreach (var argument in newExpression.Arguments)
+			{
+				CanBeEvaluatedInHql(argument);
+			}
+
+			return false;
+		}
+
+		private void VisitMemberBindings(IEnumerable<MemberBinding> bindings)
+		{
+			foreach (var binding in bindings)
+			{
+				switch (binding)
+				{
+					case MemberAssignment assignment:
+						CanBeEvaluatedInHql(assignment.Expression);
+						break;
+					case MemberListBinding listBinding:
+						foreach (var argument in listBinding.Initializers.SelectMany(o => o.Arguments))
+						{
+							CanBeEvaluatedInHql(argument);
+						}
+
+						break;
+					case MemberMemberBinding memberBinding:
+						VisitMemberBindings(memberBinding.Bindings);
+						break;
+				}
+			}
+		}
+
+		private string TryGetEntityName(MemberExpression memberExpression, out string memberPath)
+		{
+			System.Type entityType;
+			memberPath = memberExpression.Member.Name;
+			// When having components we need to go though them in order to find the entity
+			while (memberExpression.Expression is MemberExpression subMemberExpression)
+			{
+				// In some cases we can encounter a property representing the entity e.g. [_0].Customer.CustomerId
+				if (subMemberExpression.NodeType == ExpressionType.MemberAccess)
+				{
+					var entityName = _parameters.SessionFactory.TryGetGuessEntityName(memberExpression.Member.ReflectedType);
+					if (entityName != null)
+					{
+						return entityName;
+					}
+				}
+
+				memberPath = $"{subMemberExpression.Member.Name}.{memberPath}"; // Build a path that can be used to get the property form the entity metadata
+				memberExpression = subMemberExpression;
+			}
+
+			// Try to get the actual entity type from the query source if possbile as member can be declared
+			// in a base type
+			if (memberExpression.Expression is QuerySourceReferenceExpression querySourceReferenceExpression)
+			{
+				entityType = querySourceReferenceExpression.Type;
+			}
+			else
+			{
+				entityType = memberExpression.Member.ReflectedType;
+			}
+
+			return _parameters.SessionFactory.TryGetGuessEntityName(entityType);
+		}
+
+		private static bool ContainsAnyOfTypes(IEnumerable<Expression> expressions, params System.Type[] types)
+		{
+			return expressions.Any(o => types.Contains(o.Type));
+		}
+
+		private static bool IsIdentifierMember(IEntityPersister entityPersister, string memberPath)
+		{
+			var idName = entityPersister.IdentifierPropertyName;
+			// Composite key
+			if (entityPersister.IdentifierType is IAbstractComponentType idComponentType)
+			{
+				return idComponentType.PropertyNames.Any(o => (string.IsNullOrEmpty(idName) ? o : $"{idName}.{o}") == memberPath);
+			}
+
+			return idName == memberPath;
 		}
 	}
 }

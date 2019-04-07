@@ -224,7 +224,7 @@ namespace NHibernate.Linq.NestedSelects
 
 			var classMetadata = sessionFactory.GetClassMetadata(expression.Type);
 			if (classMetadata == null)
-				return Expression.Constant(null);
+				return null;
 
             var propertyName=classMetadata.IdentifierPropertyName;
             NHibernate.Type.EmbeddedComponentType componentType;
