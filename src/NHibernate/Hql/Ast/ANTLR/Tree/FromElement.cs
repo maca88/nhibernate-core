@@ -267,6 +267,12 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			set { _elementType.CollectionSuffix = value; }
 		}
 
+		public string EntitySuffix
+		{
+			get { return _elementType.EntitySuffix; }
+			set { _elementType.EntitySuffix = value; }
+		}
+
 		public IType SelectType
 		{
 			get { return _elementType.SelectType; }
@@ -324,9 +330,22 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 		/// <param name="size">The total number of returned types.</param>
 		/// <param name="k">The sequence of the current returned type.</param>
 		/// <returns>the identifier select SQL fragment.</returns>
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public string RenderIdentifierSelect(int size, int k)
 		{
 			return _elementType.RenderIdentifierSelect(size, k);
+		}
+
+		/// <summary>
+		/// Returns the identifier select fragment.
+		/// </summary>
+		/// <param name="size">The total number of returned types.</param>
+		/// <param name="k">The sequence of the current returned type.</param>
+		/// <returns>The identifier select fragment.</returns>
+		public SelectFragment GetIdentifierSelectFragment(int size, int k)
+		{
+			return _elementType.GetIdentifierSelectFragment(size, k);
 		}
 
 		/// <summary>
@@ -335,11 +354,26 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 		/// <param name="size">The total number of returned types.</param>
 		/// <param name="k">The sequence of the current returned type.</param>
 		/// <returns>the property select SQL fragment.</returns>
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public string RenderPropertySelect(int size, int k)
 		{
 			return IsAllPropertyFetch
 				? _elementType.RenderPropertySelect(size, k, IsAllPropertyFetch)
 				: _elementType.RenderPropertySelect(size, k, _fetchLazyProperties);
+		}
+
+		/// <summary>
+		/// Returns the properties select fragment.
+		/// </summary>
+		/// <param name="size">The total number of returned types.</param>
+		/// <param name="k">The sequence of the current returned type.</param>
+		/// <returns>The properties select fragment.</returns>
+		public SelectFragment GetPropertiesSelect(int size, int k)
+		{
+			return IsAllPropertyFetch
+				? _elementType.GetPropertiesSelectFragment(size, k, IsAllPropertyFetch)
+				: _elementType.GetPropertiesSelectFragment(size, k, _fetchLazyProperties);
 		}
 
 		public override SqlString RenderText(Engine.ISessionFactoryImplementor sessionFactory)
@@ -362,14 +396,28 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			return result;
 		}
 
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public string RenderCollectionSelectFragment(int size, int k)
 		{
 			return _elementType.RenderCollectionSelectFragment(size, k);
 		}
 
+		public SelectFragment GetCollectionSelectFragment(int size, int k)
+		{
+			return _elementType.GetCollectionSelectFragment(size, k);
+		}
+
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public string RenderValueCollectionSelectFragment(int size, int k)
 		{
 			return _elementType.RenderValueCollectionSelectFragment(size, k);
+		}
+
+		public SelectFragment GetValueCollectionSelectFragment(int size, int k)
+		{
+			return _elementType.GetValueCollectionSelectFragment(size, k);
 		}
 
 		public void SetIndexCollectionSelectorParamSpec(IParameterSpecification indexCollectionSelectorParamSpec)
@@ -439,9 +487,22 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 		/// </summary>
 		/// <param name="i">the sequence of the returned type</param>
 		/// <returns>the identifier select with the column alias.</returns>
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public string RenderScalarIdentifierSelect(int i)
 		{
 			return _elementType.RenderScalarIdentifierSelect(i);
+		}
+
+		/// <summary>
+		/// Render the identifier select fragment, but in a 'scalar' context (i.e. generate the column alias).
+		/// </summary>
+		/// <param name="i">The sequence of the returned type</param>
+		/// <param name="aliasCreator">A function to generate aliases.</param>
+		/// <returns>The identifier select fragment.</returns>
+		public SelectFragment GetScalarIdentifierSelectFragment(int i, Func<int, int, string> aliasCreator)
+		{
+			return _elementType.GetScalarIdentifierSelectFragment(i, aliasCreator);
 		}
 
 		public bool UseFromFragment

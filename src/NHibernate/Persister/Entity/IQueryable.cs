@@ -1,6 +1,10 @@
 using System;
 using NHibernate.Util;
 
+using System.Collections.Generic;
+using NHibernate.Hql.Ast.ANTLR.Util;
+using NHibernate.SqlCommand;
+
 namespace NHibernate.Persister.Entity
 {
 	public enum Declarer
@@ -13,13 +17,39 @@ namespace NHibernate.Persister.Entity
 	internal static class AbstractEntityPersisterExtensions
 	{
 		/// <summary>
-		/// Given a query alias and an identifying suffix, render the property select fragment.
+		/// Given a query alias and an identifying suffix, get the property select fragment.
 		/// </summary>
-		//6.0 TODO: Merge into IQueryable
-		public static string PropertySelectFragment(this IQueryable query, string alias, string suffix, string[] fetchProperties)
+		// 6.0 TODO: Move into IQueryable
+		public static SelectFragment GetIdentifierSelectFragment(this IQueryable queryable, string name, string suffix)
 		{
-			return ReflectHelper.CastOrThrow<AbstractEntityPersister>(query, "individual lazy property fetches")
-			                    .PropertySelectFragment(alias, suffix, fetchProperties);
+			if (queryable is AbstractEntityPersister entityPersister)
+			{
+				return entityPersister.GetIdentifierSelectFragment(name, suffix);
+			}
+
+			return new SelectFragment(queryable.Factory.Dialect)
+			       .SetSuffix(suffix)
+			       .AddColumns(name, queryable.IdentifierColumnNames, queryable.GetIdentifierAliases(null));
+		}
+
+		// 6.0 TODO: Move into IQueryable
+		public static SelectFragment GetPropertiesSelectFragment(this IQueryable queryable, string alias, string suffix, bool allProperties)
+		{
+			if (queryable is AbstractEntityPersister entityPersister)
+			{
+				return entityPersister.GetPropertiesSelectFragment(alias, suffix, allProperties);
+			}
+
+			var text = queryable.PropertySelectFragment(alias, suffix, allProperties);
+			return new SelectFragment(queryable.Factory.Dialect, text, null)
+			       .SetSuffix(suffix);
+		}
+
+		// 6.0 TODO: Move into IQueryable
+		public static SelectFragment GetPropertiesSelectFragment(this IQueryable queryable, string alias, string suffix, string[] fetchProperties)
+		{
+			return ReflectHelper.CastOrThrow<AbstractEntityPersister>(alias, "individual lazy property fetches")
+			                    .GetPropertiesSelectFragment(alias, suffix, fetchProperties);
 		}
 	}
 

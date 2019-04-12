@@ -47,6 +47,8 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			}
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public override void SetScalarColumnText(int i)
 		{
 			if ( _selectColumns == null ) 
@@ -57,6 +59,13 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			{	// Collection 'property function'
 				ColumnHelper.GenerateScalarColumns(Walker.ASTFactory, this, _selectColumns, i);
 			}
+		}
+
+		public override string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+			return _selectColumns == null
+				? new[] {ColumnHelper.GenerateSingleScalarColumn(ASTFactory, this, i, aliasCreator)} // Dialect function
+				: ColumnHelper.GenerateScalarColumns(ASTFactory, this, _selectColumns, i, aliasCreator); // Collection 'property function'
 		}
 
 		public void InitializeMethodNode(IASTNode name, bool inSelect)

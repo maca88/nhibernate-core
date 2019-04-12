@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using NHibernate.Util;
 
@@ -17,10 +18,20 @@ namespace NHibernate.SqlCommand
 		private Dialect.Dialect dialect;
 		private string[] usedAliases;
 		private string extraSelectList;
+		private string[] _extraAliases;
+		private string _renderedText; // 6.0 TODO: Remove
 
 		public SelectFragment(Dialect.Dialect d)
 		{
 			this.dialect = d;
+		}
+
+		// 6.0 TODO: Remove
+		internal SelectFragment(Dialect.Dialect d, string renderedText, List<string> columnAliases)
+		{
+			dialect = d;
+			_renderedText = renderedText.TrimStart(' ', ',');
+			this.columnAliases = columnAliases;
 		}
 
 		public SelectFragment SetUsedAliases(string[] usedAliases)
@@ -52,7 +63,7 @@ namespace NHibernate.SqlCommand
 
 		public SelectFragment AddColumn(string tableAlias, string columnName)
 		{
-			return AddColumn(tableAlias, columnName, columnName);
+			return AddColumn(tableAlias, columnName, null);
 		}
 
 		public SelectFragment AddColumn(string tableAlias, string columnName, string columnAlias)
@@ -132,6 +143,11 @@ namespace NHibernate.SqlCommand
 
 		public string ToSqlStringFragment(bool includeLeadingComma)
 		{
+			if (!string.IsNullOrEmpty(_renderedText))
+			{
+				return includeLeadingComma ? $"{StringHelper.CommaSpace}{_renderedText}" : _renderedText;
+			}
+
 			StringBuilder buf = new StringBuilder(columns.Count * 10);
 			HashSet<string> columnsUnique =
 				usedAliases != null ? new HashSet<string>(usedAliases) : new HashSet<string>();
@@ -142,16 +158,23 @@ namespace NHibernate.SqlCommand
 				string col = columns[i];
 				string columnAlias = columnAliases[i];
 
-				if (columnsUnique.Add(columnAlias))
+				if (columnsUnique.Add(columnAlias ?? col))
 				{
 					if (found || includeLeadingComma)
 					{
 						buf.Append(StringHelper.CommaSpace);
 					}
 
-					buf.Append(col)
-						.Append(" as ")
-						.Append(new Alias(suffix).ToAliasString(columnAlias, dialect));
+					if (columnAlias == null)
+					{
+						buf.Append(col);
+					}
+					else
+					{
+						buf.Append(col)
+						   .Append(" as ")
+						   .Append(new Alias(suffix).ToAliasString(columnAlias, dialect));
+					}
 
 					// Set the flag for the next time
 					found = true;
@@ -171,6 +194,16 @@ namespace NHibernate.SqlCommand
 			return buf.ToString();
 		}
 
+		internal string GetSuffix() => suffix;
+
+		internal IEnumerable<string> GetColumnAliases()
+		{
+			return columnAliases.Select(o => o == null ? null : new Alias(suffix).ToAliasString(o, dialect))
+			                    .Union(_extraAliases ?? Enumerable.Empty<string>());
+		}
+
+		// Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public SelectFragment SetExtraSelectList(string extraSelectList)
 		{
 			this.extraSelectList = extraSelectList;
@@ -179,7 +212,8 @@ namespace NHibernate.SqlCommand
 
 		public SelectFragment SetExtraSelectList(CaseFragment caseFragment, string fragmentAlias)
 		{
-			SetExtraSelectList(caseFragment.SetReturnColumnName(fragmentAlias, suffix).ToSqlStringFragment());
+			extraSelectList = caseFragment.SetReturnColumnName(fragmentAlias, suffix).ToSqlStringFragment();
+			_extraAliases = new[] {caseFragment.returnColumnName};
 			return this;
 		}
 	}

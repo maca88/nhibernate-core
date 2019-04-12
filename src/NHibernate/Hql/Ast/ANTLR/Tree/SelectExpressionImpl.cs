@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using Antlr.Runtime;
 
 namespace NHibernate.Hql.Ast.ANTLR.Tree
@@ -20,9 +21,18 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			throw new InvalidOperationException();
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public override void SetScalarColumnText(int i)
 		{
 			Text = FromElement.RenderScalarIdentifierSelect(i);
+		}
+
+		public override string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+			var fragment = FromElement.GetScalarIdentifierSelectFragment(i, aliasCreator);
+			Text = fragment.ToSqlStringFragment(false);
+			return fragment.GetColumnAliases().ToArray();
 		}
 
 		public override void Resolve(bool generateJoin, bool implicitJoin, string classAlias, IASTNode parent)

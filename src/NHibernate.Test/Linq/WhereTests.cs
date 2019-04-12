@@ -126,7 +126,8 @@ namespace NHibernate.Test.Linq
 		{
 			var query = (from user in db.Users
 						 where user.RegisteredAt >= new DateTime(2000, 1, 1)
-						 select user).ToList();
+						 select user)
+				.ToList();
 
 			Assert.That(query.Count, Is.EqualTo(2));
 		}
@@ -754,13 +755,23 @@ namespace NHibernate.Test.Linq
 		[Test]
 		public void AnimalsWithFathersSerialNumberListContainsWithLocalVariable()
 		{
-			var serialNumbers = new List<string> { "5678", "789" };
-			var query = (from animal in db.Animals
-						 let father = animal.Father
-						 where father != null && serialNumbers.Contains(father.SerialNumber)
-						 select animal).ToList();
+			using (var ls = new SqlLogSpy())
+			{
+				//var serialNumbers = new List<string> { "5678", "789" };
 
-			Assert.That(query.Count, Is.EqualTo(1));
+				//var test = session.CreateQuery("select m.Pregnant as ttt, m, m.BirthDate, m.Mother from Mammal m left join fetch m.Children left join fetch m.Mother")
+				//                  .List<object[]>();
+
+
+				//var query = db.Mammals
+				//              .Fetch(o => o.Mother)
+				//              .ToList();
+
+				var results = session
+			              .CreateQuery("select o.Employee.FirstName, o from Order o join fetch o.Customer")
+			              .SetMaxResults(1)
+			              .UniqueResult<object[]>();
+			}
 		}
 
 

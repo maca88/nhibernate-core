@@ -26,9 +26,16 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			return (ISelectExpression) GetChild(0).NextSibling.GetChild(0).NextSibling;
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public override void SetScalarColumnText(int i)
 		{
 			ColumnHelper.GenerateSingleScalarColumn(ASTFactory, this, i );
+		}
+
+		public override string[] SetScalarColumnText(int i, Func<int, int, string> aliasCreator)
+		{
+			return new[] {ColumnHelper.GenerateSingleScalarColumn(ASTFactory, this, i, aliasCreator)};
 		}
 	}
 }

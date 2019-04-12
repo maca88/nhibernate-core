@@ -28,6 +28,7 @@ using NHibernate.SqlTypes;
 using System.Linq;
 using System.Linq.Expressions;
 using NHibernate.Bytecode;
+using NHibernate.Hql.Ast.ANTLR.Util;
 
 namespace NHibernate.Persister.Entity
 {
@@ -1630,15 +1631,24 @@ namespace NHibernate.Persister.Entity
 
 		public virtual string IdentifierSelectFragment(string name, string suffix)
 		{
+			return GetIdentifierSelectFragment(name, suffix).ToSqlStringFragment(false);
+		}
+
+		public virtual SelectFragment GetIdentifierSelectFragment(string name, string suffix)
+		{
 			return new SelectFragment(factory.Dialect)
 				.SetSuffix(suffix)
-				.AddColumns(name, IdentifierColumnNames, IdentifierAliases)
-				.ToSqlStringFragment(false);
+				.AddColumns(name, IdentifierColumnNames, IdentifierAliases);
 		}
 
 		public string PropertySelectFragment(string name, string suffix, bool allProperties)
 		{
-			return PropertySelectFragment(name, suffix, null, allProperties);
+			return GetPropertiesSelectFragment(name, suffix, null, allProperties).ToSqlStringFragment();
+		}
+
+		public SelectFragment GetPropertiesSelectFragment(string name, string suffix, bool allProperties)
+		{
+			return GetPropertiesSelectFragment(name, suffix, null, allProperties);
 		}
 
 		public string PropertySelectFragment(string name, string suffix, string[] fetchProperties)
@@ -1646,7 +1656,17 @@ namespace NHibernate.Persister.Entity
 			return PropertySelectFragment(name, suffix, fetchProperties, false);
 		}
 
+		public SelectFragment GetPropertiesSelectFragment(string name, string suffix, string[] fetchProperties)
+		{
+			return GetPropertiesSelectFragment(name, suffix, fetchProperties, false);
+		}
+
 		private string PropertySelectFragment(string name, string suffix, string[] fetchProperties, bool allProperties)
+		{
+			return GetPropertiesSelectFragment(name, suffix, fetchProperties, allProperties).ToSqlStringFragment();
+		}
+		
+		private SelectFragment GetPropertiesSelectFragment(string name, string suffix, string[] fetchProperties, bool allProperties)
 		{
 			SelectFragment select = new SelectFragment(Factory.Dialect)
 				.SetSuffix(suffix)
@@ -1713,7 +1733,7 @@ namespace NHibernate.Persister.Entity
 			if (HasRowId)
 				select.AddColumn(name, rowIdName, Loadable.RowIdAlias);
 
-			return select.ToSqlStringFragment();
+			return select;
 		}
 
 		public object[] GetDatabaseSnapshot(object id, ISessionImplementor session)

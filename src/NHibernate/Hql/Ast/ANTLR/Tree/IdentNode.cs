@@ -1,13 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Antlr.Runtime;
 using NHibernate.Dialect.Function;
 using NHibernate.Hql.Ast.ANTLR.Util;
 using NHibernate.Persister.Collection;
-using NHibernate.Persister.Entity;
 using NHibernate.SqlCommand;
 using NHibernate.Type;
 using NHibernate.Util;
+using IQueryable = NHibernate.Persister.Entity.IQueryable;
 
 namespace NHibernate.Hql.Ast.ANTLR.Tree
 {
@@ -48,6 +49,8 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			}
 		}
 
+		//Since 5.3
+		[Obsolete("This method has no more usage in NHibernate and will be removed in a future version.")]
 		public override void SetScalarColumnText(int i)
 		{
 			if (_nakedPropertyRef) 
@@ -65,6 +68,26 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 					ColumnHelper.GenerateSingleScalarColumn(Walker.ASTFactory, this, i);
 				}
 			}
+		}
+
+		public override string[] SetScalarColumnText(int i, Func<int,int, string> aliasCreator)
+		{
+			if (_nakedPropertyRef)
+			{
+				// do *not* over-write the column text, as that has already been
+				// "rendered" during resolve
+				return new[] {ColumnHelper.GenerateSingleScalarColumn(Walker.ASTFactory, this, i, aliasCreator)};
+			}
+
+			var fe = FromElement;
+			if (fe != null)
+			{
+				var fragment = fe.GetScalarIdentifierSelectFragment(i, aliasCreator);
+				Text = fragment.ToSqlStringFragment(false);
+				return fragment.GetColumnAliases().ToArray();
+			}
+
+			return new[] {ColumnHelper.GenerateSingleScalarColumn(Walker.ASTFactory, this, i, aliasCreator)};
 		}
 
 		public override void ResolveIndex(IASTNode parent)

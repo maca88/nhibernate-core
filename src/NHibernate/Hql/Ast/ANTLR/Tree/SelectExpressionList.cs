@@ -28,7 +28,15 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 		/// <summary>
 		/// Returns an array of SelectExpressions gathered from the children of the given parent AST node.
 		/// </summary>
-		public ISelectExpression[] CollectSelectExpressions(bool recurse) 
+		public ISelectExpression[] CollectSelectExpressions(bool recurse)
+		{
+			return CollectSelectExpressions(recurse, null);
+		}
+
+		/// <summary>
+		/// Returns an array of SelectExpressions gathered from the children of the given parent AST node.
+		/// </summary>
+		internal ISelectExpression[] CollectSelectExpressions(bool recurse, Predicate<ISelectExpression> predicate) 
 		{
 			// Get the first child to be considered.  Sub-classes may do this differently in order to skip nodes that
 			// are not select expressions (e.g. DISTINCT).
@@ -46,8 +54,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 					{
 						for (IASTNode cn = ctor.GetChild(1); cn != null; cn = cn.NextSibling)
 						{
-							var se = cn as ISelectExpression;
-							if (se != null)
+							if (cn is ISelectExpression se && predicate?.Invoke(se) != false)
 							{
 								list.Add(se);
 							}
@@ -55,30 +62,30 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 					}
 					else
 					{
-						var se = n as ISelectExpression;
-						if (se != null)
-						{
-							list.Add(se);
-						}
-						else
+						if (!(n is ISelectExpression se))
 						{
 							throw new InvalidOperationException("Unexpected AST: " + n.GetType().FullName + " " +
-																new ASTPrinter().ShowAsString(n, ""));
+							                                    new ASTPrinter().ShowAsString(n, ""));
+						}
+
+						if (predicate?.Invoke(se) != false)
+						{
+							list.Add(se);
 						}
 					}
 				}
 				else
 				{
-					var se = n as ISelectExpression;
-					if (se != null)
+					if (!(n is ISelectExpression se))
+					{
+						throw new InvalidOperationException("Unexpected AST: " + n.GetType().FullName + " " +
+						                                    new ASTPrinter().ShowAsString(n, ""));
+					}
+
+					if (predicate?.Invoke(se) != false)
 					{
 						list.Add(se);
 					}
-					else
-					{
-						throw new InvalidOperationException("Unexpected AST: " + n.GetType().FullName + " " +
-															new ASTPrinter().ShowAsString(n, ""));
-					}					
 				}
 			}
 
