@@ -99,6 +99,21 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				return abstractSelectExpression.SetScalarColumn(i, aliasCreator);
 			}
 
+			if (selectExpression is ConstructorNode constructorNode)
+			{
+				return constructorNode.SetScalarColumn(i, aliasCreator);
+			}
+
+			if (selectExpression is ParameterNode parameterNode)
+			{
+				return parameterNode.SetScalarColumn(i, aliasCreator);
+			}
+
+			if (selectExpression is QueryNode queryNode)
+			{
+				return queryNode.SetScalarColumn(i, aliasCreator);
+			}
+
 #pragma warning disable 618
 			selectExpression.SetScalarColumn(i);
 #pragma warning restore 618

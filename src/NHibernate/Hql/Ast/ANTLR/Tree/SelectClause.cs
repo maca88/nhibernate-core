@@ -79,7 +79,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				}
 			}
 
-			_queryReturnTypes = queryReturnTypeList.ToArray();
+			
 
 			// Get all the select expressions (that we just generated) and render the select.
 			if (Walker.IsShallowQuery)
@@ -92,7 +92,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				RenderNonScalarSelects(CollectSelectExpressions(false, e => !e.IsScalar), fromClause, _fromElementsForLoad);
 			}
 
-			FinishInitialization();
+			FinishInitialization(queryReturnTypeList);
 		}
 
 		/// <summary>
@@ -166,8 +166,6 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				}
 			}
 
-			_queryReturnTypes = queryReturnTypeList.ToArray();
-
 			//init the aliases, after initing the constructornode
 			InitAliases(selectExpressions);
 
@@ -230,7 +228,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				RenderNonScalarSelects(nonScalarExpressions, fromClause, fetchedFromElements);
 			}
 
-			FinishInitialization();
+			FinishInitialization(queryReturnTypeList);
 		}
 
 		private static FromElement GetOrigin(FromElement fromElement)
@@ -461,7 +459,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				return;
 			}
 
-			List<int> deprecateExpressions = null; // 6.0 TODO: Remove 
+			List<int> deprecatedExpressions = null; // 6.0 TODO: Remove 
 			_scalarColumnNames = new string[se.Count][];
 			for (var i = 0; i < se.Count; i++)
 			{
@@ -470,22 +468,25 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 				// 6.0 TODO: Remove 
 				if (_scalarColumnNames[i] == null)
 				{
-					if (deprecateExpressions == null)
+					if (deprecatedExpressions == null)
 					{
-						deprecateExpressions = new List<int>();
+						deprecatedExpressions = new List<int>();
 					}
 
-					deprecateExpressions.Add(i);
+					deprecatedExpressions.Add(i);
 				}
 			}
 
 			// 6.0 TODO: Remove 
-			if (deprecateExpressions != null)
+			if (deprecatedExpressions != null)
 			{
+				// A parameter may not have the DataType property set. In such case suppose
+				// that the parameter has one column span.
+				var columnTypes = se.Select(o => o.DataType ?? NHibernateUtil.String).ToArray();
 #pragma warning disable 618
-				var columnNames = SessionFactoryHelper.GenerateColumnNames(_queryReturnTypes);
+				var columnNames = SessionFactoryHelper.GenerateColumnNames(columnTypes);
 #pragma warning restore 618
-				foreach (var index in deprecateExpressions)
+				foreach (var index in deprecatedExpressions)
 				{
 					_scalarColumnNames[index] = columnNames[index];
 				}
@@ -514,9 +515,10 @@ namespace NHibernate.Hql.Ast.ANTLR.Tree
 			}
 		}
 
-		private void FinishInitialization()
+		private void FinishInitialization(List<IType> queryReturnTypeList)
 		{
 			_prepared = true;
+			_queryReturnTypes = queryReturnTypeList.ToArray();
 		}
 
 		private void InitializeScalarColumnNames()

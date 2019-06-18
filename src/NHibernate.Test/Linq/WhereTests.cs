@@ -423,6 +423,34 @@ namespace NHibernate.Test.Linq
 			Assert.That(users.Count, Is.EqualTo(1));
 		}
 
+		[Test(Description = "GH-2092")]
+		public void ScalarAndFetchSelect()
+		{
+			using (var ls = new SqlLogSpy())
+			{
+				// TODO: subquery test
+				// :param as p, new UserDto(m.Id, m.Description) as usr, 
+				//UserDto
+
+				var test2 = session.CreateQuery(
+					"select new UserDto(m.Id, m.Description) from Mammal m")
+								  //.SetInt32("param", 1)
+								  .List<UserDto>();
+
+				var test = session.CreateQuery(
+					"select 1 as num, m.Pregnant as pregnant, m, m.BirthDate, m.Mother, m.Mother.SerialNumber " +
+					"from Mammal m left join fetch m.Children left join fetch m.Mother")
+				                  //.SetInt32("param", 1)
+				                  .List<object[]>();
+
+				var results = session
+				              .CreateQuery("select o.Employee.FirstName, o from Order o join fetch o.Customer")
+				              .SetMaxResults(1)
+				              .UniqueResult<object[]>();
+			}
+		}
+
+
 		[Test]
 		public void UsersWithArrayContains()
 		{
@@ -751,29 +779,6 @@ namespace NHibernate.Test.Linq
 
 			Assert.That(query.Count, Is.EqualTo(1));
 		}
-
-		[Test]
-		public void AnimalsWithFathersSerialNumberListContainsWithLocalVariable()
-		{
-			using (var ls = new SqlLogSpy())
-			{
-				//var serialNumbers = new List<string> { "5678", "789" };
-
-				//var test = session.CreateQuery("select m.Pregnant as ttt, m, m.BirthDate, m.Mother from Mammal m left join fetch m.Children left join fetch m.Mother")
-				//                  .List<object[]>();
-
-
-				//var query = db.Mammals
-				//              .Fetch(o => o.Mother)
-				//              .ToList();
-
-				var results = session
-			              .CreateQuery("select o.Employee.FirstName, o from Order o join fetch o.Customer")
-			              .SetMaxResults(1)
-			              .UniqueResult<object[]>();
-			}
-		}
-
 
 		[Test(Description = "NH-3366")]
 		public void CanUseCompareInQueryWithNonConstantZero()

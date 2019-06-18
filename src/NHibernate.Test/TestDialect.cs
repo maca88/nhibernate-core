@@ -80,7 +80,7 @@ namespace NHibernate.Test
 
 		public virtual bool SupportsOrderByColumnNumber => true;
 
-		public virtual bool SupportsDuplicatedColumnAliases => true;
+		//public virtual bool SupportsDuplicatedColumnAliases => true;
 
 		/// <summary>
 		/// Supports inserting in a table without any column specified in the insert.

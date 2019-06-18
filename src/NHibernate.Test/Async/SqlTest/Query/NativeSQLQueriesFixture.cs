@@ -497,18 +497,15 @@ namespace NHibernate.Test.SqlTest.Query
 
 			s.Clear();
 
-			if (TestDialect.SupportsDuplicatedColumnAliases)
-			{
-				// TODO : why twice?
-				await (s.GetNamedQuery("organizationreturnproperty").ListAsync());
-				list = await (s.GetNamedQuery("organizationreturnproperty").ListAsync());
-				Assert.AreEqual(2, list.Count);
+			await (s.GetNamedQuery("organizationreturnproperty").ListAsync());
+			list = await (s.GetNamedQuery("organizationreturnproperty").ListAsync());
+			Assert.AreEqual(2, list.Count);
 
-				s.Clear();
+			s.Clear();
 
-				list = await (s.GetNamedQuery("organizationautodetect").ListAsync());
-				Assert.AreEqual(2, list.Count);
-			}
+			list = await (s.GetNamedQuery("organizationautodetect").ListAsync());
+			Assert.AreEqual(2, list.Count);
+			
 
 			await (t.CommitAsync());
 			s.Close();
