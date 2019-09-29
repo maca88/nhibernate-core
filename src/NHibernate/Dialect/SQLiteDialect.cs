@@ -40,8 +40,10 @@ namespace NHibernate.Dialect
 			RegisterColumnType(DbType.UInt16, "INTEGER");
 			RegisterColumnType(DbType.UInt32, "INTEGER");
 			RegisterColumnType(DbType.UInt64, "INTEGER");
-			RegisterColumnType(DbType.Currency, "NUMERIC");
-			RegisterColumnType(DbType.Decimal, "NUMERIC");
+			RegisterColumnType(DbType.Currency, "REAL");
+			// NUMERIC is not an option here, because it can store the value as INTEGER when it does not contain a decimal point,
+			// which causes an invalid result when using division operator (e.g. 19/2 would return 9 if NUMERIC is used)
+			RegisterColumnType(DbType.Decimal, "REAL");
 			RegisterColumnType(DbType.Double, "DOUBLE");
 			RegisterColumnType(DbType.Single, "DOUBLE");
 			RegisterColumnType(DbType.VarNumeric, "NUMERIC");
@@ -93,7 +95,7 @@ namespace NHibernate.Dialect
 			RegisterFunction("bxor", new SQLFunctionTemplate(null, "((?1 | ?2) - (?1 & ?2))"));
 
 			// NH-3787: SQLite requires the cast in SQL too for not defaulting to string.
-			RegisterFunction("transparentcast", new CastFunction());
+			RegisterFunction("transparentcast", new SQLiteCastFunction());
 			
 			RegisterFunction("strguid", new SQLFunctionTemplate(NHibernateUtil.String, "substr(hex(?1), 7, 2) || substr(hex(?1), 5, 2) || substr(hex(?1), 3, 2) || substr(hex(?1), 1, 2) || '-' || substr(hex(?1), 11, 2) || substr(hex(?1), 9, 2) || '-' || substr(hex(?1), 15, 2) || substr(hex(?1), 13, 2) || '-' || substr(hex(?1), 17, 4) || '-' || substr(hex(?1), 21) "));
 		}
@@ -426,8 +428,10 @@ namespace NHibernate.Dialect
 		{
 			protected override bool CastingIsRequired(string sqlType)
 			{
-				// SQLite doesn't support casting to datetime types.  It assumes you want an integer and destroys the date string.
-				if (StringHelper.ContainsCaseInsensitive(sqlType, "date") || StringHelper.ContainsCaseInsensitive(sqlType, "time"))
+				// SQLite doesn't support casting to datetime or uniqueidentifier types.  It assumes you want an integer and destroys the date or uniqueidentifier string.
+				if (StringHelper.ContainsCaseInsensitive(sqlType, "date") || 
+					StringHelper.ContainsCaseInsensitive(sqlType, "time") ||
+					StringHelper.ContainsCaseInsensitive(sqlType, "uniqueidentifier"))
 					return false;
 				return true;
 			}
