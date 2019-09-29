@@ -8,6 +8,7 @@ using NHibernate.Linq.Expressions;
 using NHibernate.Persister.Entity;
 using NHibernate.Type;
 using Remotion.Linq.Clauses.Expressions;
+using NHibernate.Util;
 
 namespace NHibernate.Linq.Visitors
 {
@@ -172,7 +173,7 @@ namespace NHibernate.Linq.Visitors
 			}
 
 			// Check whether the member is mapped
-			var entityName = TryGetEntityName(memberExpression, out var memberPath);
+			var entityName = ExpressionsHelper.TryGetEntityName(_parameters.SessionFactory, memberExpression, out var memberPath);
 			if (entityName == null)
 			{
 				return false; // Not mapped
@@ -207,9 +208,9 @@ namespace NHibernate.Linq.Visitors
 			var canBeEvaluated = CanBeEvaluatedInHql(binaryExpression.Left) &
 			                     CanBeEvaluatedInHql(binaryExpression.Right);
 
-			// Subtract datetimes on the client side as its result varies when executed on the server side.
+			// Subtract datetimes on the client side as the result varies when executed on the server side.
 			// In Sql Server when using datetime2 subtract is not possbile.
-			// In Oracle a number is returned that represents the difference bewteen the two in days.
+			// In Oracle a number is returned that represents the difference between the two in days.
 			if (new[]
 			    {
 				    ExpressionType.Subtract,
@@ -315,41 +316,6 @@ namespace NHibernate.Linq.Visitors
 						break;
 				}
 			}
-		}
-
-		private string TryGetEntityName(MemberExpression memberExpression, out string memberPath)
-		{
-			System.Type entityType;
-			memberPath = memberExpression.Member.Name;
-			// When having components we need to go though them in order to find the entity
-			while (memberExpression.Expression is MemberExpression subMemberExpression)
-			{
-				// In some cases we can encounter a property representing the entity e.g. [_0].Customer.CustomerId
-				if (subMemberExpression.NodeType == ExpressionType.MemberAccess)
-				{
-					var entityName = _parameters.SessionFactory.TryGetGuessEntityName(memberExpression.Member.ReflectedType);
-					if (entityName != null)
-					{
-						return entityName;
-					}
-				}
-
-				memberPath = $"{subMemberExpression.Member.Name}.{memberPath}"; // Build a path that can be used to get the property form the entity metadata
-				memberExpression = subMemberExpression;
-			}
-
-			// Try to get the actual entity type from the query source if possbile as member can be declared
-			// in a base type
-			if (memberExpression.Expression is QuerySourceReferenceExpression querySourceReferenceExpression)
-			{
-				entityType = querySourceReferenceExpression.Type;
-			}
-			else
-			{
-				entityType = memberExpression.Member.ReflectedType;
-			}
-
-			return _parameters.SessionFactory.TryGetGuessEntityName(entityType);
 		}
 
 		private static bool ContainsAnyOfTypes(IEnumerable<Expression> expressions, params System.Type[] types)

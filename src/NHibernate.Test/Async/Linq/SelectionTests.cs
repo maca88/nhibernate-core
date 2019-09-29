@@ -407,6 +407,18 @@ namespace NHibernate.Test.Linq
 						  })
 						  .ToListAsync());
 			Assert.That(list3, Has.Count.GreaterThan(0));
+
+			var list4 = await (db.Orders
+						  .Select(o => new
+						  {
+							  Employee = db.Employees.Any(e => e.Superior != null)
+								  ? db.Employees
+									  .Where(e => e.Superior != null)
+									  .Select(e => e.Superior).FirstOrDefault()
+								  : o.Employee.Superior != null ? o.Employee.Superior : o.Employee
+						  })
+						  .ToListAsync());
+			Assert.That(list4, Has.Count.GreaterThan(0));
 		}
 
 		[Test, KnownBug("NH-3045")]
