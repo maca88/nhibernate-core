@@ -706,7 +706,6 @@ namespace NHibernate.Test.Linq
 			Assert.DoesNotThrow(() => db.Animals.Select(a => a.FatherSerialNumber is string).ToList());
 		}
 
-
 		[Test]
 		public void CanSelectComponentProperty()
 		{

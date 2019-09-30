@@ -150,8 +150,8 @@ namespace NHibernate.Linq.Visitors
 		private bool CanBeEvaluatedInHql(MethodCallExpression methodExpression)
 		{
 			var canBeEvaluated = methodExpression.Object == null || // Is static or extension method
-			                     methodExpression.Object.NodeType != ExpressionType.Constant && // Does not belong to a parameter
-			                     CanBeEvaluatedInHql(methodExpression.Object);
+			                     (methodExpression.Object.NodeType != ExpressionType.Constant && // Does not belong to a parameter
+			                     CanBeEvaluatedInHql(methodExpression.Object));
 			foreach (var argumentExpression in methodExpression.Arguments)
 			{
 				// If one of the agruments cannot be converted to hql we have to execute the method on the client side

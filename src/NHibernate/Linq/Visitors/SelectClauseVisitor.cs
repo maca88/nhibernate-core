@@ -63,7 +63,7 @@ namespace NHibernate.Linq.Visitors
 
 			// Now visit the tree
 			var projection = Transform(Visit(expression));
-			if (projection != expression && !_hqlNodes.Contains(expression) || _hqlTreeNodes.Count == 0)
+			if ((projection != expression && !_hqlNodes.Contains(expression)) || _hqlTreeNodes.Count == 0)
 			{
 				ProjectionExpression = Expression.Lambda(projection, _inputParameter);
 			}
@@ -84,7 +84,6 @@ namespace NHibernate.Linq.Visitors
 				_hqlTreeNodes = new List<HqlExpression>(1) {_hqlTreeBuilder.ExpressionSubTreeHolder(treeNodes)};
 			}
 		}
-
 
 		#region Overrides
 
