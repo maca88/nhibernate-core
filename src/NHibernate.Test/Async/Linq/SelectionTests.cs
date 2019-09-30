@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NHibernate.DomainModel.Northwind.Entities;
+using NHibernate.Driver;
 using NHibernate.Exceptions;
 using NHibernate.Proxy;
 using NUnit.Framework;
@@ -275,15 +276,21 @@ namespace NHibernate.Test.Linq
 		[Test]
 		public async Task CanSelectConditionalAsync()
 		{
-			using (var sqlLog = new SqlLogSpy())
+			// SqlServerCeDriver and OdbcDriver have an issue matching the case statements inside select and order by statement,
+			// when having one or more parameters inside them. Throws with the following error:
+			// ORDER BY items must appear in the select list if SELECT DISTINCT is specified.
+			if (!(Sfi.ConnectionProvider.Driver is OdbcDriver) && !(Sfi.ConnectionProvider.Driver is SqlServerCeDriver))
 			{
-				var q = await (db.Orders.Where(o => o.Customer.CustomerId == "test")
-						   .Select(o => o.ShippedTo.Contains("test") ? o.ShippedTo : o.Customer.CompanyName)
-						   .OrderBy(o => o)
-						   .Distinct()
-						   .ToListAsync());
+				using (var sqlLog = new SqlLogSpy())
+				{
+					var q = await (db.Orders.Where(o => o.Customer.CustomerId == "test")
+							   .Select(o => o.ShippedTo.Contains("test") ? o.ShippedTo : o.Customer.CompanyName)
+							   .OrderBy(o => o)
+							   .Distinct()
+							   .ToListAsync());
 
-				Assert.That(FindAllOccurrences(sqlLog.GetWholeLog(), "case"), Is.EqualTo(2));
+					Assert.That(FindAllOccurrences(sqlLog.GetWholeLog(), "case"), Is.EqualTo(2));
+				}
 			}
 
 			using (var sqlLog = new SqlLogSpy())
