@@ -94,6 +94,7 @@ namespace NHibernate.Tuple.Entity
 
 			identifierProperty = PropertyFactory.BuildIdentifierProperty(persistentClass,
 			                                                             sessionFactory.GetIdentifierGenerator(rootName));
+			MapIdentifierPropertyTypes(identifierProperty);
 
 			versioned = persistentClass.IsVersioned;
 

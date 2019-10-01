@@ -180,8 +180,8 @@ namespace NHibernate.Linq.Visitors
 			}
 
 			var persister = _parameters.SessionFactory.GetEntityPersister(entityName);
-			var index = persister.EntityMetamodel.GetPropertyIndexOrNull(memberPath);
-			return index.HasValue || IsIdentifierMember(persister, memberPath);
+			return persister.EntityMetamodel.GetIdentifierPropertyType(memberPath) != null ||
+					persister.EntityMetamodel.GetPropertyIndexOrNull(memberPath).HasValue;
 		}
 
 		private bool CanBeEvaluatedInHql(ConditionalExpression conditionalExpression)
@@ -321,18 +321,6 @@ namespace NHibernate.Linq.Visitors
 		private static bool ContainsAnyOfTypes(IEnumerable<Expression> expressions, params System.Type[] types)
 		{
 			return expressions.Any(o => types.Contains(o.Type));
-		}
-
-		private static bool IsIdentifierMember(IEntityPersister entityPersister, string memberPath)
-		{
-			var idName = entityPersister.IdentifierPropertyName;
-			// Composite key
-			if (entityPersister.IdentifierType is IAbstractComponentType idComponentType)
-			{
-				return idComponentType.PropertyNames.Any(o => (string.IsNullOrEmpty(idName) ? o : $"{idName}.{o}") == memberPath);
-			}
-
-			return idName == memberPath;
 		}
 	}
 }
