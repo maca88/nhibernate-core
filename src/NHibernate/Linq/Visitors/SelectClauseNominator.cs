@@ -172,16 +172,10 @@ namespace NHibernate.Linq.Visitors
 				return canBeEvaluated;
 			}
 
-			// Check whether the member is mapped
-			var entityName = ExpressionsHelper.TryGetEntityName(_parameters.SessionFactory, memberExpression, out var memberPath);
-			if (entityName == null)
-			{
-				return false; // Not mapped
-			}
-
-			var persister = _parameters.SessionFactory.GetEntityPersister(entityName);
-			return persister.EntityMetamodel.GetIdentifierPropertyType(memberPath) != null ||
-					persister.EntityMetamodel.GetPropertyIndexOrNull(memberPath).HasValue;
+			// Check whether the member is mapped. TryGetEntityName will return not return the entity name when the
+			// member is part of a composite element of a collection, so check if the type was found.
+			ExpressionsHelper.TryGetEntityName(_parameters.SessionFactory, memberExpression, out _, out var memberType);
+			return memberType != null;
 		}
 
 		private bool CanBeEvaluatedInHql(ConditionalExpression conditionalExpression)
