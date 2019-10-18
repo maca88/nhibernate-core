@@ -20,6 +20,7 @@ using NHibernate.Proxy;
 using NHibernate.Type;
 using NHibernate.Properties;
 using System;
+using System.Collections.Generic;
 
 namespace NHibernate.Engine
 {
@@ -27,7 +28,7 @@ namespace NHibernate.Engine
 	using System.Threading;
 	public static partial class TwoPhaseLoad
 	{
-		
+
 		/// <summary>
 		/// Perform the second step of 2-phase load. Fully initialize the entity instance.
 		/// After processing a JDBC result set, we "resolve" all the associations
@@ -55,11 +56,10 @@ namespace NHibernate.Engine
 			cancellationToken.ThrowIfCancellationRequested();
 			//TODO: Should this be an InitializeEntityEventListener??? (watch out for performance!)
 
-			bool statsEnabled = session.Factory.Statistics.IsStatisticsEnabled;
-			var stopWath = new Stopwatch();
-			if (statsEnabled)
+			Stopwatch stopWatch = null;
+			if (session.Factory.Statistics.IsStatisticsEnabled)
 			{
-				stopWath.Start();
+				stopWatch = Stopwatch.StartNew();
 			}
 
 			IPersistenceContext persistenceContext = session.PersistenceContext;
@@ -76,13 +76,26 @@ namespace NHibernate.Engine
 				log.Debug("resolving associations for {0}", MessageHelper.InfoString(persister, id, session.Factory));
 
 			IType[] types = persister.PropertyTypes;
+			var collectionToResolveIndexes = new List<int>(hydratedState.Length);
 			for (int i = 0; i < hydratedState.Length; i++)
 			{
 				object value = hydratedState[i];
 				if (!Equals(LazyPropertyInitializer.UnfetchedProperty, value) && !(Equals(BackrefPropertyAccessor.Unknown, value)))
 				{
+					if (types[i].IsCollectionType)
+					{
+						// Resolve them last, because they may depend on other properties if they use a property-ref
+						collectionToResolveIndexes.Add(i);
+						continue;
+					}
+
 					hydratedState[i] = await (types[i].ResolveIdentifierAsync(value, session, entity, cancellationToken)).ConfigureAwait(false);
 				}
+			}
+
+			foreach (var i in collectionToResolveIndexes)
+			{
+				hydratedState[i] = await (types[i].ResolveIdentifierAsync(hydratedState[i], session, entity, cancellationToken)).ConfigureAwait(false);
 			}
 
 			//Must occur after resolving identifiers!
@@ -110,10 +123,10 @@ namespace NHibernate.Engine
 
 				object version = Versioning.GetVersion(hydratedState, persister);
 				CacheEntry entry =
-					await (CacheEntry.CreateAsync(hydratedState, persister, entityEntry.LoadedWithLazyPropertiesUnfetched, version, session, entity, cancellationToken)).ConfigureAwait(false);
+					await (CacheEntry.CreateAsync(hydratedState, persister, version, session, entity, cancellationToken)).ConfigureAwait(false);
 				CacheKey cacheKey = session.GenerateCacheKey(id, persister.IdentifierType, persister.RootEntityName);
 
-				if (cacheBatchingHandler != null && persister.IsBatchLoadable && persister.Cache.IsBatchingPutSupported())
+				if (cacheBatchingHandler != null && persister.IsBatchLoadable)
 				{
 					cacheBatchingHandler(
 						persister,
@@ -170,7 +183,7 @@ namespace NHibernate.Engine
 				persistenceContext.SetEntryStatus(entityEntry, Status.Loaded);
 			}
 
-			persister.AfterInitialize(entity, entityEntry.LoadedWithLazyPropertiesUnfetched, session);
+			persister.AfterInitialize(entity, session);
 
 			if (session.IsEventSource)
 			{
@@ -187,10 +200,10 @@ namespace NHibernate.Engine
 			if (log.IsDebugEnabled())
 				log.Debug("done materializing entity {0}", MessageHelper.InfoString(persister, id, session.Factory));
 
-			if (statsEnabled)
+			if (stopWatch != null)
 			{
-				stopWath.Stop();
-				factory.StatisticsImplementor.LoadEntity(persister.EntityName, stopWath.Elapsed);
+				stopWatch.Stop();
+				factory.StatisticsImplementor.LoadEntity(persister.EntityName, stopWatch.Elapsed);
 			}
 		}
 	}

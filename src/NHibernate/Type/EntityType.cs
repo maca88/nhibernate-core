@@ -146,6 +146,11 @@ namespace NHibernate.Type
 				return persister.GetIdentifier(obj);
 			}
 		}
+		
+		public virtual int GetOwnerColumnSpan(IMapping session)
+		{
+			return GetColumnSpan(session);
+		}
 
 		protected internal object GetIdentifier(object value, ISessionImplementor session)
 		{
@@ -286,6 +291,10 @@ namespace NHibernate.Type
 			get { return uniqueKeyPropertyName != null; }
 		}
 
+		/// <summary>
+		/// True if not null entity key can represent null entity
+		/// (e.g. entity mapped with not-found="ignore" or not constrained one-to-one mapping)
+		/// </summary>
 		public abstract bool IsNullable { get; }
 
 		/// <summary> Retrieves the {@link Joinable} defining the associated entity. </summary>
@@ -509,11 +518,6 @@ namespace NHibernate.Type
 			//TODO: implement caching?! proxies?!
 
 			var keyType = GetIdentifierOrUniqueKeyType(factory)
-				// EntityUniqueKey was doing this on the type. I suspect this was needed only for its usage in Loader,
-				// which can work with entities as keys not yet instanciated and just represented by their identifiers.
-				// But since removing this call from EntityUniqueKey is done for a patch and that the code path here has
-				// no known bugs with this GetSemiResolvedType, moving its call here for avoiding altering this code
-				// path. See GH1645.
 				.GetSemiResolvedType(factory);
 			EntityUniqueKey euk =
 				new EntityUniqueKey(
@@ -530,6 +534,10 @@ namespace NHibernate.Type
 				if (result == null)
 				{
 					result = persister.LoadByUniqueKey(uniqueKeyPropertyName, key, session);
+					if (result == null && !IsNullable)
+					{
+						factory.EntityNotFoundDelegate.HandleEntityNotFound(entityName, uniqueKeyPropertyName, key);
+					}
 				}
 				return result == null ? null : persistenceContext.ProxyFor(result);
 			}

@@ -142,8 +142,7 @@ namespace NHibernate.Test.CacheTest
 			{
 				DisassembledState = GetAllKnownTypeValues(),
 				Version = 55,
-				Subclass = "Test",
-				AreLazyPropertiesUnfetched = true
+				Subclass = "Test"
 			};
 		}
 
@@ -199,7 +198,7 @@ namespace NHibernate.Test.CacheTest
 				{NHibernateUtil.TrueFalse, false},
 				{NHibernateUtil.YesNo, true},
 				{NHibernateUtil.Class, typeof(IType)},
-				{NHibernateUtil.ClassMetaType, entityName},
+				{NHibernateUtil.MetaType, entityName},
 				{NHibernateUtil.Serializable, new MyEntity {Id = 1}},
 				{NHibernateUtil.Object, new MyEntity {Id = 10}},
 				{NHibernateUtil.AnsiChar, 'a'},
@@ -240,7 +239,6 @@ namespace NHibernate.Test.CacheTest
 			Assert.That(copy.Version, Is.EqualTo(original.Version));
 			Assert.That(copy.Version, Is.TypeOf(original.Version.GetType()));
 			Assert.That(copy.Subclass, Is.EqualTo(original.Subclass));
-			Assert.That(copy.AreLazyPropertiesUnfetched, Is.EqualTo(original.AreLazyPropertiesUnfetched));
 			for (var i = 0; i < copy.DisassembledState.Length; i++)
 			{
 				Assert.That(copy.DisassembledState[i], Is.TypeOf(original.DisassembledState[i].GetType()));

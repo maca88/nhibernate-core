@@ -192,7 +192,18 @@ namespace NHibernate.Impl
 		public abstract void FlushBeforeTransactionCompletion();
 		public abstract void AfterTransactionCompletion(bool successful, ITransaction tx);
 		public abstract object GetContextEntityIdentifier(object obj);
+
+		//Since 5.3
+		[Obsolete("Use override with persister parameter")]
 		public abstract object Instantiate(string clazz, object id);
+
+		//6.0 TODO: Make abstract
+		public virtual object Instantiate(IEntityPersister persister, object id)
+		{
+#pragma warning disable 618
+			return Instantiate(persister.EntityName, id);
+#pragma warning restore 618
+		}
 
 		public virtual IList List(NativeSQLQuerySpecification spec, QueryParameters queryParameters)
 		{
@@ -358,7 +369,7 @@ namespace NHibernate.Impl
 		/// </returns>
 		public IDisposable BeginProcess()
 		{
-			return _processing ? null : new ProcessHelper(this);
+			return _processHelper.BeginProcess(this);
 		}
 
 		/// <summary>
@@ -370,48 +381,56 @@ namespace NHibernate.Impl
 		/// </returns>
 		public IDisposable BeginContext()
 		{
-			return _processing ? null : new SessionIdLoggingContext(SessionId);
+			return _processHelper.Processing ? null : SessionIdLoggingContext.CreateOrNull(SessionId);
 		}
 
-		[NonSerialized]
-		private bool _processing;
+		private ProcessHelper _processHelper = new ProcessHelper();
 
+		[Serializable]
 		private sealed class ProcessHelper : IDisposable
 		{
-			private AbstractSessionImpl _session;
-			private SessionIdLoggingContext _context;
+			[NonSerialized]
+			private IDisposable _context;
 
-			public ProcessHelper(AbstractSessionImpl session)
+			[NonSerialized]
+			private bool _processing;
+
+			public ProcessHelper()
 			{
-				_session = session;
-				_context = new SessionIdLoggingContext(session.SessionId);
+			}
+
+			public bool Processing { get => _processing; }
+
+			public IDisposable BeginProcess(AbstractSessionImpl session)
+			{
+				if (_processing)
+					return null;
+
 				try
 				{
-					_session.CheckAndUpdateSessionStatus();
-					_session._processing = true;
+					_context = SessionIdLoggingContext.CreateOrNull(session.SessionId);
+					session.CheckAndUpdateSessionStatus();
+					_processing = true;
 				}
 				catch
 				{
-					_context.Dispose();
-					_context = null;
+					Dispose();
 					throw;
 				}
+				return this;
 			}
 
 			public void Dispose()
 			{
 				_context?.Dispose();
 				_context = null;
-				if (_session == null)
-					throw new ObjectDisposedException("The session process helper has been disposed already");
-				_session._processing = false;
-				_session = null;
+				_processing = false;
 			}
 		}
 
 		protected internal virtual void CheckAndUpdateSessionStatus()
 		{
-			if (_processing)
+			if (_processHelper.Processing)
 				return;
 
 			ErrorIfClosed();

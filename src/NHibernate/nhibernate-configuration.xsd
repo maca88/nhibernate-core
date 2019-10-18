@@ -92,7 +92,14 @@
 										<xs:enumeration value="show_sql" />
 										<xs:enumeration value="max_fetch_depth" />
 										<xs:enumeration value="current_session_context_class" />
-										<xs:enumeration value="transaction.factory_class" />
+										<xs:enumeration value="transaction.factory_class">
+											<xs:annotation>
+												<xs:documentation>
+													The class name of a custom ITransactionFactory implementation.
+													Defaults to the built-in AdoNetWithSystemTransactionFactory.
+												</xs:documentation>
+											</xs:annotation>
+										</xs:enumeration>
 										<xs:enumeration value="cache.provider_class" />
 										<xs:enumeration value="cache.use_query_cache" />
 										<xs:enumeration value="cache.query_cache_factory" />
@@ -174,6 +181,17 @@
 												</xs:documentation>
 											</xs:annotation>
 										</xs:enumeration>
+										<xs:enumeration value="transaction.auto_join">
+											<xs:annotation>
+												<xs:documentation>
+													Should sessions check on every operation whether there is an ongoing system transaction or not, and enlist
+													into it if any? Default is true. It can also be controlled at session opening, with
+													ISessionFactory.WithOptions. A session can also be instructed to explicitly join the current
+													transaction by calling ISession.JoinTransaction. This setting has no effect when using a
+													transaction factory that is not system transactions aware.
+												</xs:documentation>
+											</xs:annotation>
+										</xs:enumeration>
 										<xs:enumeration value="oracle.use_n_prefixed_types_for_unicode">
 											<xs:annotation>
 												<xs:documentation>
@@ -185,6 +203,18 @@
 													See https://docs.oracle.com/cd/B19306_01/server.102/b14225/ch6unicode.htm#CACHCAHF
 													https://docs.oracle.com/database/121/ODPNT/featOraCommand.htm#i1007557
 													This setting applies only to Oracle dialects and ODP.Net managed or unmanaged driver.
+												</xs:documentation>
+											</xs:annotation>
+										</xs:enumeration>
+										<xs:enumeration value="firebird.disable_parameter_casting">
+											<xs:annotation>
+												<xs:documentation>
+													Firebird with FirebirdSql.Data.FirebirdClient may be unable to determine the type
+													of parameters in many circumstances, unless they are explicitly casted in the SQL
+													query. To avoid this trouble, the NHibernate FirebirdClientDriver parses SQL
+													commands for detecting parameters in them and adding an explicit SQL cast around
+													parameters which may trigger the issue.
+													For disabling this behavior, set this setting to true.
 												</xs:documentation>
 											</xs:annotation>
 										</xs:enumeration>

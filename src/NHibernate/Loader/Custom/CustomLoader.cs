@@ -24,7 +24,7 @@ namespace NHibernate.Loader.Custom
 		// the types will also have to be discovered at cache hit, from the cache results.
 
 		private readonly SqlString sql;
-		private readonly ISet<string> querySpaces = new HashSet<string>();
+		private readonly HashSet<string> querySpaces = new HashSet<string>();
 		private List<IParameterSpecification> parametersSpecifications;
 
 		private readonly IQueryable[] entityPersisters;
@@ -179,6 +179,7 @@ namespace NHibernate.Loader.Custom
 			transformerAliases = specifiedAliases.ToArray();
 			rowProcessor = new ResultRowProcessor(hasScalars, resultColumnProcessors.ToArray());
 			includeInResultRow = includeInResultRowList.ToArray();
+			ResultRowAliases = transformerAliases.Where((a, i) => includeInResultRowList[i]).ToArray();
 		}
 
 		public ISet<string> QuerySpaces
@@ -297,11 +298,11 @@ namespace NHibernate.Loader.Custom
 			return rowProcessor.BuildResultRow(row, rs, session);
 		}
 
-		protected override string[] ResultRowAliases => transformerAliases;
+		protected override string[] ResultRowAliases { get; }
 
 		protected override IResultTransformer ResolveResultTransformer(IResultTransformer resultTransformer)
 		{
-			return HolderInstantiator.ResolveResultTransformer(null, resultTransformer);
+			return resultTransformer;
 		}
 
 		protected override bool[] IncludeInResultRow
@@ -312,23 +313,20 @@ namespace NHibernate.Loader.Custom
 		public override IList GetResultList(IList results, IResultTransformer resultTransformer)
 		{
 			// meant to handle dynamic instantiation queries...(Copy from QueryLoader)
-			HolderInstantiator holderInstantiator =
-				HolderInstantiator.GetHolderInstantiator(null, resultTransformer, ReturnAliasesForTransformer);
-			if (holderInstantiator.IsRequired)
+			var returnAliases = ReturnAliasesForTransformer;
+
+			if (resultTransformer != null)
 			{
-				for (int i = 0; i < results.Count; i++)
+				for (var i = 0; i < results.Count; i++)
 				{
-					object[] row = (object[]) results[i];
-					object result = holderInstantiator.Instantiate(row);
-					results[i] = result;
+					var row = (object[]) results[i];
+					results[i] = resultTransformer.TransformTuple(row, returnAliases);
 				}
 
 				return resultTransformer.TransformList(results);
 			}
-			else
-			{
-				return results;
-			}
+
+			return results;
 		}
 
 		protected internal override void AutoDiscoverTypes(

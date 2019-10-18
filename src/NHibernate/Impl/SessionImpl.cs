@@ -183,7 +183,11 @@ namespace NHibernate.Impl
 		internal SessionImpl(SessionFactoryImpl factory, ISessionCreationOptions options)
 			: base(factory, options)
 		{
-			using (BeginContext())
+			// This context is disposed only on session own disposal. This greatly reduces the number of context switches
+			// for most usual session usages. It may cause an irrelevant session id to be set back on disposal, but since all
+			// session entry points are supposed to set it, it should not have any consequences.
+			_context = SessionIdLoggingContext.CreateOrNull(SessionId);
+			try
 			{
 				actionQueue = new ActionQueue(this);
 				persistenceContext = new StatefulPersistenceContext(this);
@@ -202,6 +206,11 @@ namespace NHibernate.Impl
 					SessionId, Timestamp, factory.Name, factory.Uuid);
 
 				CheckAndUpdateSessionStatus();
+			}
+			catch
+			{
+				_context?.Dispose();
+				throw;
 			}
 		}
 
@@ -752,6 +761,8 @@ namespace NHibernate.Impl
 				: Factory.QueryPlanCache.GetFilterQueryPlan(filter, role, shallow, EnabledFilters);
 		}
 
+		//Since 5.3
+		[Obsolete("Use override with persister parameter")]
 		public override object Instantiate(string clazz, object id)
 		{
 			using (BeginProcess())
@@ -776,7 +787,7 @@ namespace NHibernate.Impl
 		/// <param name="persister"></param>
 		/// <param name="id"></param>
 		/// <returns></returns>
-		public object Instantiate(IEntityPersister persister, object id)
+		public override object Instantiate(IEntityPersister persister, object id)
 		{
 			using (BeginProcess())
 			{
@@ -958,11 +969,11 @@ namespace NHibernate.Impl
 					}
 					entity = initializer.GetImplementation();
 				}
-				if (FieldInterceptionHelper.IsInstrumented(entity))
+
+				if (entity is IFieldInterceptorAccessor interceptorAccessor && interceptorAccessor.FieldInterceptor != null)
 				{
 					// NH: support of field-interceptor-proxy
-					IFieldInterceptor interceptor = FieldInterceptionHelper.ExtractFieldInterceptor(entity);
-					return interceptor.EntityName;
+					return interceptorAccessor.FieldInterceptor.EntityName;
 				}
 				EntityEntry entry = persistenceContext.GetEntry(entity);
 				if (entry == null)
@@ -1473,6 +1484,7 @@ namespace NHibernate.Impl
 		#region System.IDisposable Members
 
 		private string fetchProfile;
+		private IDisposable _context;
 
 		/// <summary>
 		/// Finalizer that ensures the object is correctly disposed of.
@@ -1505,6 +1517,7 @@ namespace NHibernate.Impl
 				}
 				Dispose(true);
 			}
+			_context?.Dispose();
 		}
 
 		/// <summary>
@@ -1530,17 +1543,18 @@ namespace NHibernate.Impl
 
 				// free managed resources that are being managed by the session if we
 				// know this call came through Dispose()
-				if (isDisposing && !IsClosed)
+				if (isDisposing)
 				{
-					Close();
+					if (!IsClosed)
+					{
+						Close();
+					}
+					// nothing for Finalizer to do - so tell the GC to ignore it
+					GC.SuppressFinalize(this);
 				}
 
 				// free unmanaged resources here
-
 				IsAlreadyDisposed = true;
-
-				// nothing for Finalizer to do - so tell the GC to ignore it
-				GC.SuppressFinalize(this);
 			}
 		}
 
@@ -1954,6 +1968,8 @@ namespace NHibernate.Impl
 			return new[] { filterName, parameterName };
 		}
 
+		// Since v5.2
+		[Obsolete("Use ISession.CreateQueryBatch instead.")]
 		public IMultiQuery CreateMultiQuery()
 		{
 			using (BeginProcess())
@@ -1962,6 +1978,8 @@ namespace NHibernate.Impl
 			}
 		}
 
+		// Since v5.2
+		[Obsolete("Use ISession.CreateQueryBatch instead.")]
 		public IMultiCriteria CreateMultiCriteria()
 		{
 			using (BeginProcess())

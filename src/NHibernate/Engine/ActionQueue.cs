@@ -1,13 +1,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NHibernate.Action;
 using NHibernate.Cache;
 using NHibernate.Type;
+using NHibernate.Util;
 
 namespace NHibernate.Engine
 {
@@ -132,24 +132,37 @@ namespace NHibernate.Engine
 			}
 		}
 
-		public void RegisterProcess(AfterTransactionCompletionProcessDelegate process)
-		{
-			afterTransactionProcesses.Register(process);
-		}
-	
-		public void RegisterProcess(BeforeTransactionCompletionProcessDelegate process)
+		public void RegisterProcess(IBeforeTransactionCompletionProcess process)
 		{
 			beforeTransactionProcesses.Register(process);
 		}
-	
-		private void ExecuteActions(IList list)
+
+		public void RegisterProcess(IAfterTransactionCompletionProcess process)
+		{
+			afterTransactionProcesses.Register(process);
+		}
+
+		//Since v5.2
+		[Obsolete("This method is not used and will be removed in a future version.")]
+		public void RegisterProcess(BeforeTransactionCompletionProcessDelegate process)
+		{
+			RegisterProcess(new BeforeTransactionCompletionDelegatedProcess(process));
+		}
+
+		//Since v5.2
+		[Obsolete("This method is not used and will be removed in a future version.")]
+		public void RegisterProcess(AfterTransactionCompletionProcessDelegate process)
+		{
+			RegisterProcess(new AfterTransactionCompletionDelegatedProcess(process));
+		}
+
+		private void ExecuteActions<T>(List<T> list) where T: IExecutable
 		{
 			// Actions may raise events to which user code can react and cause changes to action list.
 			// It will then fail here due to list being modified. (Some previous code was dodging the
 			// trouble with a for loop which was not failing provided the list was not getting smaller.
 			// But then it was clearing it without having executed added actions (if any), ...)
-			
-			foreach (IExecutable executable in list)
+			foreach (var executable in list)
 			{
 				InnerExecute(executable);
 			}
@@ -185,18 +198,28 @@ namespace NHibernate.Engine
 			}
 			finally
 			{
-				if (executable.PropertySpaces != null)
-				{
-					executedSpaces.UnionWith(executable.PropertySpaces);
-				}
 				RegisterCleanupActions(executable);
 			}
 		}
 
 		private void RegisterCleanupActions(IExecutable executable)
 		{
-			beforeTransactionProcesses.Register(executable.BeforeTransactionCompletionProcess);
-			afterTransactionProcesses.Register(executable.AfterTransactionCompletionProcess);
+			if (executable is IAsyncExecutable asyncExecutable)
+			{
+				RegisterProcess(asyncExecutable.BeforeTransactionCompletionProcess);
+				RegisterProcess(asyncExecutable.AfterTransactionCompletionProcess);
+			}
+			else
+			{
+#pragma warning disable 618,619
+				RegisterProcess(executable.BeforeTransactionCompletionProcess);
+				RegisterProcess(executable.AfterTransactionCompletionProcess);
+#pragma warning restore 618,619
+			}
+			if (executable.PropertySpaces != null)
+			{
+				executedSpaces.UnionWith(executable.PropertySpaces);
+			}
 		}
 
 		/// <summary> 
@@ -234,9 +257,9 @@ namespace NHibernate.Engine
 			}
 		}
 
-		private static void PrepareActions(IList queue)
+		private static void PrepareActions<T>(List<T> queue) where T: IExecutable
 		{
-			foreach (IExecutable executable in queue)
+			foreach (var executable in queue)
 				executable.BeforeExecutions();
 		}
 
@@ -251,7 +274,7 @@ namespace NHibernate.Engine
 		}
 
 		/// <summary>
-		/// Execute any registered <see cref="BeforeTransactionCompletionProcessDelegate" />
+		/// Execute any registered <see cref="IBeforeTransactionCompletionProcess" />
 		/// </summary>
 		public void BeforeTransactionCompletion() 
 		{
@@ -305,9 +328,9 @@ namespace NHibernate.Engine
 			get { return (insertions.Count > 0 || deletions.Count > 0); }
 		}
 
-		private static bool AreTablesToUpdated(IList executables, ICollection<string> tablespaces)
+		private static bool AreTablesToUpdated<T>(List<T> executables, ISet<string> tablespaces) where T: IExecutable
 		{
-			foreach (IExecutable exec in executables)
+			foreach (var exec in executables)
 			{
 				var spaces = exec.PropertySpaces;
 				foreach (string o in spaces)
@@ -452,16 +475,16 @@ namespace NHibernate.Engine
 		}
 		
 		[Serializable]
-		private class BeforeTransactionCompletionProcessQueue 
+		private partial class BeforeTransactionCompletionProcessQueue 
 		{
-			private List<BeforeTransactionCompletionProcessDelegate> processes = new List<BeforeTransactionCompletionProcessDelegate>();
+			private List<IBeforeTransactionCompletionProcess> processes = new List<IBeforeTransactionCompletionProcess>();
 
 			public bool HasActions
 			{
 				get { return processes.Count > 0; }
 			}
 
-			public void Register(BeforeTransactionCompletionProcessDelegate process) 
+			public void Register(IBeforeTransactionCompletionProcess process) 
 			{
 				if (process == null) 
 				{
@@ -477,8 +500,8 @@ namespace NHibernate.Engine
 				{
 					try 
 					{
-						BeforeTransactionCompletionProcessDelegate process = processes[i];
-						process();
+						var process = processes[i];
+						process.ExecuteBeforeTransactionCompletion();
 					}
 					catch (HibernateException)
 					{
@@ -494,16 +517,16 @@ namespace NHibernate.Engine
 		}
 
 		[Serializable]
-		private class AfterTransactionCompletionProcessQueue 
+		private partial class AfterTransactionCompletionProcessQueue 
 		{
-			private List<AfterTransactionCompletionProcessDelegate> processes = new List<AfterTransactionCompletionProcessDelegate>(InitQueueListSize * 3);
+			private List<IAfterTransactionCompletionProcess> processes = new List<IAfterTransactionCompletionProcess>(InitQueueListSize * 3);
 
 			public bool HasActions
 			{
 				get { return processes.Count > 0; }
 			}
 
-			public void Register(AfterTransactionCompletionProcessDelegate process)
+			public void Register(IAfterTransactionCompletionProcess process)
 			{
 				if (process == null) 
 				{
@@ -520,8 +543,8 @@ namespace NHibernate.Engine
 				{
 					try
 					{
-						AfterTransactionCompletionProcessDelegate process = processes[i];
-						process(success);
+						var process = processes[i];
+						process.ExecuteAfterTransactionCompletion(success);
 					}
 					catch (CacheException e)
 					{
@@ -537,6 +560,40 @@ namespace NHibernate.Engine
 			}
 		}
 
+		//6.0 TODO: Remove
+		[Obsolete]
+		private partial class BeforeTransactionCompletionDelegatedProcess : IBeforeTransactionCompletionProcess
+		{
+			private readonly BeforeTransactionCompletionProcessDelegate _delegate;
+
+			public BeforeTransactionCompletionDelegatedProcess(BeforeTransactionCompletionProcessDelegate @delegate)
+			{
+				_delegate = @delegate;
+			}
+
+			public void ExecuteBeforeTransactionCompletion()
+			{
+				_delegate?.Invoke();
+			}
+		}
+
+		//6.0 TODO: Remove
+		[Obsolete]
+		private partial class AfterTransactionCompletionDelegatedProcess : IAfterTransactionCompletionProcess
+		{
+			private readonly AfterTransactionCompletionProcessDelegate _delegate;
+
+			public AfterTransactionCompletionDelegatedProcess(AfterTransactionCompletionProcessDelegate @delegate)
+			{
+				_delegate = @delegate;
+			}
+
+			public void ExecuteAfterTransactionCompletion(bool success)
+			{
+				_delegate?.Invoke(success);
+			}
+		}
+
 		[Serializable]
 		private class InsertActionSorter
 		{
@@ -547,7 +604,7 @@ namespace NHibernate.Engine
 			// The map of entities to their batch.
 			private readonly Dictionary<object, int> _entityBatchNumber;
 			// The map of entities to the latest batch (of another entities) they depend on.
-			private readonly Dictionary<object, int> _entityBatchDependency = new Dictionary<object, int>();
+			private readonly Dictionary<object, int> _entityBatchDependency = new Dictionary<object, int>(ReferenceComparer<object>.Instance);
 
 			// the map of batch numbers to EntityInsertAction lists
 			private readonly Dictionary<int, List<AbstractEntityInsertAction>> _actionBatches = new Dictionary<int, List<AbstractEntityInsertAction>>();
@@ -561,7 +618,7 @@ namespace NHibernate.Engine
 				_actionQueue = actionQueue;
 
 				//optimize the hash size to eliminate a rehash.
-				_entityBatchNumber = new Dictionary<object, int>(actionQueue.insertions.Count + 1);
+				_entityBatchNumber = new Dictionary<object, int>(actionQueue.insertions.Count + 1, ReferenceComparer<object>.Instance);
 			}
 
 			// This sorting does not actually optimize some features like mapped inheritance or joined-table,
@@ -643,7 +700,12 @@ namespace NHibernate.Engine
 					var value = propertyValues[i];
 					var type = propertyTypes[i];
 
-					if (type.IsEntityType && value != null)
+					if (type.IsEntityType && value != null &&
+						// If the value is not initialized, it is a proxy with pending load from database,
+						// so it can only be an already persisted entity. It can not have its own pending
+						// insertion batch. So there is no need to seek for it, and it avoids initializing
+						// it by searching it in a dictionary. Fixes #1338.
+						NHibernateUtil.IsInitialized(value))
 					{
 						// find the batch number associated with the current association, if any.
 						int associationBatchNumber;
@@ -703,8 +765,16 @@ namespace NHibernate.Engine
 					
 					foreach(var child in children)
 					{
-						if (child == null)
+						if (child == null ||
+							// If the child is not initialized, it is a proxy with pending load from database,
+							// so it can only be an already persisted entity. It can not have its own pending
+							// insertion batch. So we do not need to keep track of the highest other batch on
+							// which it depends. And this avoids initializing the proxy by searching it into
+							// a dictionary.
+							!NHibernateUtil.IsInitialized(child))
+						{
 							continue;
+						}
 
 						int latestDependency;
 						if (_entityBatchDependency.TryGetValue(child, out latestDependency) && latestDependency > batchNumber)

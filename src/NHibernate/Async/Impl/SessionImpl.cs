@@ -1246,7 +1246,7 @@ namespace NHibernate.Impl
 				// Always allow flushing from explicit transactions, otherwise check if flushing from scope is enabled.
 				if (tx != null || context.CanFlushOnSystemTransactionCompleted)
 					await (FlushBeforeTransactionCompletionAsync(cancellationToken)).ConfigureAwait(false);
-				actionQueue.BeforeTransactionCompletion();
+				await (actionQueue.BeforeTransactionCompletionAsync(cancellationToken)).ConfigureAwait(false);
 				try
 				{
 					Interceptor.BeforeTransactionCompletion(tx);
@@ -1266,16 +1266,9 @@ namespace NHibernate.Impl
 			{
 				return Task.FromCanceled<object>(cancellationToken);
 			}
-			try
-			{
-				if (FlushMode != FlushMode.Manual)
-					return FlushAsync(cancellationToken);
-				return Task.CompletedTask;
-			}
-			catch (Exception ex)
-			{
-				return Task.FromException<object>(ex);
-			}
+			if (FlushMode != FlushMode.Manual)
+				return FlushAsync(cancellationToken);
+			return Task.CompletedTask;
 		}
 
 		private async Task FireDeleteAsync(DeleteEvent @event, CancellationToken cancellationToken)

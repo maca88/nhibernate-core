@@ -266,6 +266,255 @@ namespace NHibernate.Test.Futures
 			}
 		}
 
+		[Test]
+		public void AutoDiscoverWorksWithFuture()
+		{
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				var future =
+					s
+						.CreateSQLQuery("select count(*) as childCount from EntitySimpleChild where Name like :pattern")
+						.AddScalar("childCount", NHibernateUtil.Int64)
+						.SetString("pattern", "Chi%")
+						.SetCacheable(true)
+						.FutureValue<long>();
+
+				Assert.That(future.Value, Is.EqualTo(2L), "From DB");
+				t.Commit();
+			}
+
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				var future =
+					s
+						.CreateSQLQuery("select count(*) as childCount from EntitySimpleChild where Name like :pattern")
+						.AddScalar("childCount", NHibernateUtil.Int64)
+						.SetString("pattern", "Chi%")
+						.SetCacheable(true)
+						.FutureValue<long>();
+
+				Assert.That(future.Value, Is.EqualTo(2L), "From cache");
+				t.Commit();
+			}
+		}
+
+		[Test]
+		public void AutoFlushCacheInvalidationWorksWithFuture()
+		{
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				var futureResults =
+					s
+						.CreateQuery("from EntitySimpleChild")
+						.SetCacheable(true)
+						.Future<EntitySimpleChild>()
+						.GetEnumerable()
+						.ToList();
+
+				Assert.That(futureResults, Has.Count.EqualTo(2), "First call");
+
+				t.Commit();
+			}
+
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				var deleted = s.Query<EntitySimpleChild>().First();
+				// We need to get rid of a referencing entity for the delete.
+				deleted.Parent.Child1 = null;
+				deleted.Parent.Child2 = null;
+				s.Delete(deleted);
+
+				var future =
+					s
+						.CreateQuery("from EntitySimpleChild")
+						.SetCacheable(true)
+						.Future<EntitySimpleChild>();
+
+				Assert.That(future.GetEnumerable().ToList(), Has.Count.EqualTo(1), "After delete");
+				t.Commit();
+			}
+		}
+
+		[Test]
+		public void UsingHqlToFutureWithCacheAndTransformerDoesntThrow()
+		{
+			// Adapted from #383
+			using (var session = OpenSession())
+			using (var t = session.BeginTransaction())
+			{
+				//store values in cache
+				session
+					.CreateQuery("from EntitySimpleChild")
+					.SetResultTransformer(Transformers.DistinctRootEntity)
+					.SetCacheable(true)
+					.SetCacheMode(CacheMode.Normal)
+					.Future<EntitySimpleChild>()
+					.GetEnumerable();
+				t.Commit();
+			}
+
+			using (var session = OpenSession())
+			using (var t = session.BeginTransaction())
+			{
+				//get values from cache
+				var results =
+					session
+						.CreateQuery("from EntitySimpleChild")
+						.SetResultTransformer(Transformers.DistinctRootEntity)
+						.SetCacheable(true)
+						.SetCacheMode(CacheMode.Normal)
+						.Future<EntitySimpleChild>()
+						.GetEnumerable()
+						.ToList();
+
+				Assert.That(results.Count, Is.EqualTo(2));
+				t.Commit();
+			}
+		}
+
+		[Test]
+		public void ReadOnlyWorksWithFuture()
+		{
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				var futureSimples =
+					s
+						.CreateQuery("from EntitySimpleChild")
+						.SetReadOnly(true)
+						.Future<EntitySimpleChild>();
+				var futureSubselect =
+					s
+						.CreateQuery("from EntitySubselectChild")
+						.Future<EntitySubselectChild>();
+
+				var simples = futureSimples.GetEnumerable().ToList();
+				Assert.That(simples, Has.Count.GreaterThan(0));
+				foreach (var entity in simples)
+				{
+					Assert.That(s.IsReadOnly(entity), Is.True, entity.Name);
+				}
+
+				var subselect = futureSubselect.GetEnumerable().ToList();
+				Assert.That(subselect, Has.Count.GreaterThan(0));
+				foreach (var entity in subselect)
+				{
+					Assert.That(s.IsReadOnly(entity), Is.False, entity.Name);
+				}
+
+				t.Commit();
+			}
+		}
+
+		[Test]
+		public void CacheModeWorksWithFuture()
+		{
+			Sfi.Statistics.IsStatisticsEnabled = true;
+
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				s
+					.CreateQuery("from EntitySimpleChild")
+					.SetCacheable(true)
+					.SetCacheMode(CacheMode.Get)
+					.Future<EntitySimpleChild>();
+				s
+					.CreateQuery("from EntityComplex")
+					.SetCacheable(true)
+					.SetCacheMode(CacheMode.Put)
+					.Future<EntityComplex>();
+				s
+					.CreateQuery("from EntitySubselectChild")
+					.SetCacheable(true)
+					.Future<EntitySubselectChild>()
+					.GetEnumerable();
+				Assert.That(Sfi.Statistics.QueryCachePutCount, Is.EqualTo(2), "Future put");
+
+				t.Commit();
+			}
+
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				Sfi.Statistics.Clear();
+				s
+					.CreateQuery("from EntitySimpleChild")
+					.SetCacheable(true)
+					.List<EntitySimpleChild>();
+				Assert.That(Sfi.Statistics.QueryCacheHitCount, Is.EqualTo(0), "EntitySimpleChild query hit");
+
+				Sfi.Statistics.Clear();
+				s
+					.CreateQuery("from EntityComplex")
+					.SetCacheable(true)
+					.List<EntityComplex>();
+				Assert.That(Sfi.Statistics.QueryCacheHitCount, Is.EqualTo(1), "EntityComplex query hit");
+
+				Sfi.Statistics.Clear();
+				s
+					.CreateQuery("from EntitySubselectChild")
+					.SetCacheable(true)
+					.List<EntitySubselectChild>();
+				Assert.That(Sfi.Statistics.QueryCacheHitCount, Is.EqualTo(1), "EntitySubselectChild query hit");
+
+				t.Commit();
+			}
+
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				Sfi.Statistics.Clear();
+				s
+					.CreateQuery("from EntitySimpleChild")
+					.SetCacheable(true)
+					.SetCacheMode(CacheMode.Get)
+					.Future<EntitySimpleChild>();
+				s
+					.CreateQuery("from EntitySubselectChild")
+					.SetCacheable(true)
+					.Future<EntitySubselectChild>()
+					.GetEnumerable();
+				Assert.That(Sfi.Statistics.QueryCachePutCount, Is.EqualTo(0), "Second future put");
+				Assert.That(Sfi.Statistics.QueryCacheHitCount, Is.EqualTo(2), "Second future hit");
+
+				t.Commit();
+			}
+		}
+
+		//GH-2173
+		[Test]
+		public void CanFetchNonLazyEntitiesInSubsequentQuery()
+		{
+			Sfi.Statistics.IsStatisticsEnabled = true;
+			using (var s = OpenSession())
+			using (var t = s.BeginTransaction())
+			{
+				s.Save(
+					new EntityEager
+					{
+						Name = "EagerManyToOneAssociation",
+						EagerEntity = new EntityEagerChild {Name = "association"}
+					});
+				t.Commit();
+			}
+
+			using (var s = OpenSession())
+			{
+				Sfi.Statistics.Clear();
+				//EntityEager.EagerEntity is lazy initialized instead of being loaded by the second query 
+				s.QueryOver<EntityEager>().Fetch(SelectMode.Skip, x => x.EagerEntity).Future();
+				s.QueryOver<EntityEager>().Fetch(SelectMode.Fetch, x => x.EagerEntity).Future().GetEnumerable();
+
+				if(SupportsMultipleQueries)
+					Assert.That(Sfi.Statistics.PrepareStatementCount, Is.EqualTo(1));
+			}
+		}
+
 		#region Test Setup
 
 		protected override HbmMapping GetMappings()
@@ -311,6 +560,10 @@ namespace NHibernate.Test.Futures
 					rc.Id(x => x.Id, m => m.Generator(Generators.GuidComb));
 					rc.Property(x => x.Name);
 
+					rc.ManyToOne(x => x.EagerEntity, m =>
+					{
+						m.Cascade(Mapping.ByCode.Cascade.Persist);
+					});
 					rc.Bag(ep => ep.ChildrenListSubselect,
 							m =>
 							{
@@ -327,6 +580,14 @@ namespace NHibernate.Test.Futures
 								m.Lazy(CollectionLazy.NoLazy);
 							},
 							a => a.OneToMany());
+				});
+			mapper.Class<EntityEagerChild>(
+				rc =>
+				{
+					rc.Lazy(false);
+
+					rc.Id(x => x.Id, m => m.Generator(Generators.GuidComb));
+					rc.Property(x => x.Name);
 				});
 			mapper.Class<EntitySubselectChild>(
 				rc =>
@@ -349,6 +610,7 @@ namespace NHibernate.Test.Futures
 				session.Flush();
 				transaction.Commit();
 			}
+			Sfi.Statistics.IsStatisticsEnabled = false;
 		}
 
 		protected override void OnSetUp()

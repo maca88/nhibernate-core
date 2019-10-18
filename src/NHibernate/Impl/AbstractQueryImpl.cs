@@ -10,6 +10,7 @@ using NHibernate.Transform;
 using NHibernate.Type;
 using NHibernate.Util;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -195,32 +196,22 @@ namespace NHibernate.Impl
 				throw new ArgumentNullException("clazz", "The IType can not be guessed for a null value.");
 			}
 
-			string typename = clazz.AssemblyQualifiedName;
-			IType type = TypeFactory.HeuristicType(typename);
-			bool serializable = (type != null && type is SerializableType);
-			if (type == null || serializable)
+			var type = TypeFactory.HeuristicType(clazz);
+			if (type == null || type is SerializableType)
 			{
-				try
+				if (session.Factory.TryGetEntityPersister(clazz.FullName) != null)
 				{
-					session.Factory.GetEntityPersister(clazz.FullName);
+					return NHibernateUtil.Entity(clazz);
 				}
-				catch (MappingException)
+
+				if (type == null)
 				{
-					if (serializable)
-					{
-						return type;
-					}
-					else
-					{
-						throw new HibernateException("Could not determine a type for class: " + typename);
-					}
+					throw new HibernateException(
+						"Could not determine a type for class: " + clazz.AssemblyQualifiedName);
 				}
-				return NHibernateUtil.Entity(clazz);
 			}
-			else
-			{
-				return type;
-			}
+
+			return type;
 		}
 
 		/// <summary>
@@ -265,7 +256,10 @@ namespace NHibernate.Impl
 
 			var paramPrefix = isJpaPositionalParam ? StringHelper.SqlParameter : ParserHelper.HqlVariablePrefix;
 
-			return StringHelper.Replace(query, paramPrefix + name, string.Join(StringHelper.CommaSpace, aliases), true);
+			return Regex.Replace(
+				query,
+				Regex.Escape(paramPrefix + name) + @"\b",
+				string.Join(StringHelper.CommaSpace, aliases));
 		}
 
 		#region Parameters
@@ -997,21 +991,24 @@ namespace NHibernate.Impl
 		public virtual QueryParameters GetQueryParameters(IDictionary<string, TypedValue> namedParams)
 		{
 			return new QueryParameters(
-					TypeArray(),
-					ValueArray(),
-					namedParams,
-					LockModes,
-					Selection,
-					true,
-					IsReadOnly,
-					cacheable,
-					cacheRegion,
-					comment,
-					collectionKey == null ? null : new[] { collectionKey },
-					optionalObject,
-					optionalEntityName,
-					optionalId,
-					resultTransformer);
+				TypeArray(),
+				ValueArray(),
+				namedParams,
+				LockModes,
+				Selection,
+				true,
+				IsReadOnly,
+				cacheable,
+				cacheRegion,
+				comment,
+				collectionKey == null ? null : new[] { collectionKey },
+				optionalObject,
+				optionalEntityName,
+				optionalId,
+				resultTransformer)
+			{
+				CacheMode = cacheMode
+			};
 		}
 
 		protected void Before()

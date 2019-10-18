@@ -9,7 +9,6 @@
 
 
 using System;
-using System.Collections;
 using NHibernate.Cache;
 using NHibernate.Collection;
 using NHibernate.Persister.Collection;
@@ -47,18 +46,18 @@ namespace NHibernate.Engine
 		/// Get a batch of uninitialized collection keys for a given role
 		/// </summary>
 		/// <param name="collectionPersister">The persister for the collection role.</param>
-		/// <param name="id">A key that must be included in the batch fetch</param>
+		/// <param name="key">A key that must be included in the batch fetch</param>
 		/// <param name="batchSize">the maximum number of keys to return</param>
 		/// <param name="checkCache">Whether to check the cache for uninitialized collection keys.</param>
 		/// <param name="collectionEntries">An array that will be filled with collection entries if set.</param>
 		/// <param name="cancellationToken">A cancellation token that can be used to cancel the work</param>
 		/// <returns>An array of collection keys, of length <paramref name="batchSize"/> (padded with nulls)</returns>
-		internal async Task<object[]> GetCollectionBatchAsync(ICollectionPersister collectionPersister, object id, int batchSize, bool checkCache,
+		internal async Task<object[]> GetCollectionBatchAsync(ICollectionPersister collectionPersister, object key, int batchSize, bool checkCache,
 		                                     CollectionEntry[] collectionEntries, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			var keys = new object[batchSize];
-			keys[0] = id; // The first element of array is reserved for the actual instance we are loading
+			keys[0] = key; // The first element of array is reserved for the actual instance we are loading
 			var i = 1; // The current index of keys array
 			int? keyIndex = null; // The index of the demanding key in the linked hash set
 			var checkForEnd = false; // Stores whether we found the demanded collection and reached the batchSize
@@ -66,7 +65,7 @@ namespace NHibernate.Engine
 			// List of collection entries that haven't been checked for their existance in the cache. Besides the collection entry,
 			// the index where the entry was found is also stored in order to correctly order the returning keys.
 			var collectionKeys = new List<KeyValuePair<KeyValuePair<CollectionEntry, IPersistentCollection>, int>>(batchSize);
-			var batchableCache = collectionPersister.Cache?.Cache as IBatchableReadOnlyCache;
+			var batchableCache = collectionPersister.Cache?.GetCacheBase();
 
 			if (!batchLoadableCollections.TryGetValue(collectionPersister.Role, out var map))
 			{
@@ -76,7 +75,7 @@ namespace NHibernate.Engine
 			foreach (KeyValuePair<CollectionEntry, IPersistentCollection> me in map)
 			{
 				cancellationToken.ThrowIfCancellationRequested();
-				if (await (ProcessKeyAsync(me)).ConfigureAwait(false))
+				if (ProcessKey(me) ?? await (CheckCacheAndProcessResultAsync()).ConfigureAwait(false))
 				{
 					return keys;
 				}
@@ -104,12 +103,12 @@ namespace NHibernate.Engine
 					? collectionKeys.Count - Math.Min(batchSize, collectionKeys.Count)
 					: 0;
 				var toIndex = collectionKeys.Count - 1;
-				var indexes = GetSortedKeyIndexes(collectionKeys, keyIndex.Value, fromIndex, toIndex);
+				var indexes = GetSortedKeyIndexes(collectionKeys, keyIndex, fromIndex, toIndex);
 				if (batchableCache == null)
 				{
 					for (var j = 0; j < collectionKeys.Count; j++)
 					{
-						if (await (ProcessKeyAsync(collectionKeys[indexes[j]].Key)).ConfigureAwait(false))
+						if (ProcessKey(collectionKeys[indexes[j]].Key) == true)
 						{
 							return true;
 						}
@@ -118,10 +117,9 @@ namespace NHibernate.Engine
 				else
 				{
 					var results = await (AreCachedAsync(collectionKeys, indexes, collectionPersister, batchableCache, checkCache, cancellationToken)).ConfigureAwait(false);
-					var k = toIndex;
 					for (var j = 0; j < results.Length; j++)
 					{
-						if (!results[j] && await (ProcessKeyAsync(collectionKeys[indexes[j]].Key, true)).ConfigureAwait(false))
+						if (!results[j] && ProcessKey(collectionKeys[indexes[j]].Key, true) == true)
 						{
 							return true;
 						}
@@ -135,7 +133,7 @@ namespace NHibernate.Engine
 				return false;
 			}
 
-			async Task<bool> ProcessKeyAsync(KeyValuePair<CollectionEntry, IPersistentCollection> me, bool ignoreCache = false)
+			bool? ProcessKey(KeyValuePair<CollectionEntry, IPersistentCollection> me, bool ignoreCache = false)
 			{
 				var ce = me.Key;
 				var collection = me.Value;
@@ -155,11 +153,11 @@ namespace NHibernate.Engine
 					return false;
 				}
 
-				if (checkForEnd && (index >= keyIndex.Value + batchSize || index == map.Count))
+				if (checkForEnd && (index == map.Count || index >= keyIndex.Value + batchSize))
 				{
 					return true;
 				}
-				if (collectionPersister.KeyType.IsEqual(id, ce.LoadedKey, collectionPersister.Factory))
+				if (collectionPersister.KeyType.IsEqual(key, ce.LoadedKey, collectionPersister.Factory))
 				{
 					if (collectionEntries != null)
 					{
@@ -169,20 +167,20 @@ namespace NHibernate.Engine
 				}
 				else if (!checkCache || batchableCache == null)
 				{
-					if (!keyIndex.HasValue || index < keyIndex.Value)
+					if (index < map.Count && (!keyIndex.HasValue || index < keyIndex.Value))
 					{
 						collectionKeys.Add(new KeyValuePair<KeyValuePair<CollectionEntry, IPersistentCollection>, int>(me, index));
 						return false;
 					}
 
-					if (!checkCache || !await (IsCachedAsync(ce.LoadedKey, collectionPersister, cancellationToken)).ConfigureAwait(false))
+					// No need to check "!checkCache || !IsCached(ce.LoadedKey, collectionPersister)":
+					// "batchableCache == null" already means there is no cache, so IsCached can only yield false.
+					// (This method is now removed.)
+					if (collectionEntries != null)
 					{
-						if (collectionEntries != null)
-						{
-							collectionEntries[i] = ce;
-						}
-						keys[i++] = ce.LoadedKey;
+						collectionEntries[i] = ce;
 					}
+					keys[i++] = ce.LoadedKey;
 				}
 				else if (ignoreCache)
 				{
@@ -201,15 +199,15 @@ namespace NHibernate.Engine
 					{
 						return false;
 					}
-					return await (CheckCacheAndProcessResultAsync()).ConfigureAwait(false);
+					return null;
 				}
 				if (i == batchSize)
 				{
 					i = 1; // End of array, start filling again from start
-					if (keyIndex.HasValue)
+					if (index == map.Count || keyIndex.HasValue)
 					{
 						checkForEnd = true;
-						return index >= keyIndex.Value + batchSize || index == map.Count;
+						return index == map.Count || index >= keyIndex.Value + batchSize;
 					}
 				}
 				return false;
@@ -258,7 +256,8 @@ namespace NHibernate.Engine
 			// List of entity keys that haven't been checked for their existance in the cache. Besides the entity key,
 			// the index where the key was found is also stored in order to correctly order the returning keys.
 			var entityKeys = new List<KeyValuePair<EntityKey, int>>(batchSize);
-			var batchableCache = persister.Cache?.Cache as IBatchableReadOnlyCache;
+			// If there is a cache, obsolete or not, batchableCache will not be null.
+			var batchableCache = persister.Cache?.GetCacheBase();
 
 			if (!batchLoadableEntityKeys.TryGetValue(persister.EntityName, out var set))
 			{
@@ -268,7 +267,7 @@ namespace NHibernate.Engine
 			foreach (var key in set)
 			{
 				cancellationToken.ThrowIfCancellationRequested();
-				if (await (ProcessKeyAsync(key)).ConfigureAwait(false))
+				if (ProcessKey(key) ?? await (CheckCacheAndProcessResultAsync()).ConfigureAwait(false))
 				{
 					return ids;
 				}
@@ -296,12 +295,12 @@ namespace NHibernate.Engine
 					? entityKeys.Count - Math.Min(batchSize, entityKeys.Count)
 					: 0;
 				var toIndex = entityKeys.Count - 1;
-				var indexes = GetSortedKeyIndexes(entityKeys, idIndex.Value, fromIndex, toIndex);
+				var indexes = GetSortedKeyIndexes(entityKeys, idIndex, fromIndex, toIndex);
 				if (batchableCache == null)
 				{
 					for (var j = 0; j < entityKeys.Count; j++)
 					{
-						if (await (ProcessKeyAsync(entityKeys[indexes[j]].Key)).ConfigureAwait(false))
+						if (ProcessKey(entityKeys[indexes[j]].Key) == true)
 						{
 							return true;
 						}
@@ -310,10 +309,9 @@ namespace NHibernate.Engine
 				else
 				{
 					var results = await (AreCachedAsync(entityKeys, indexes, persister, batchableCache, checkCache, cancellationToken)).ConfigureAwait(false);
-					var k = toIndex;
 					for (var j = 0; j < results.Length; j++)
 					{
-						if (!results[j] && await (ProcessKeyAsync(entityKeys[indexes[j]].Key, true)).ConfigureAwait(false))
+						if (!results[j] && ProcessKey(entityKeys[indexes[j]].Key, true) == true)
 						{
 							return true;
 						}
@@ -327,10 +325,10 @@ namespace NHibernate.Engine
 				return false;
 			}
 
-			async Task<bool> ProcessKeyAsync(EntityKey key, bool ignoreCache = false)
+			bool? ProcessKey(EntityKey key, bool ignoreCache = false)
 			{
 				//TODO: this needn't exclude subclasses...
-				if (checkForEnd && (index >= idIndex.Value + batchSize || index == set.Count))
+				if (checkForEnd && (index == set.Count || index >= idIndex.Value + batchSize))
 				{
 					return true;
 				}
@@ -340,16 +338,16 @@ namespace NHibernate.Engine
 				}
 				else if (!checkCache || batchableCache == null)
 				{
-					if (!idIndex.HasValue || index < idIndex.Value)
+					if (index < set.Count && (!idIndex.HasValue || index < idIndex.Value))
 					{
 						entityKeys.Add(new KeyValuePair<EntityKey, int>(key, index));
 						return false;
 					}
 
-					if (!checkCache || !await (IsCachedAsync(key, persister, cancellationToken)).ConfigureAwait(false))
-					{
-						ids[i++] = key.Identifier;
-					}
+					// No need to check "!checkCache || !IsCached(key, persister)": "batchableCache == null"
+					// already means there is no cache, so IsCached can only yield false. (This method is now
+					// removed.)
+					ids[i++] = key.Identifier;
 				}
 				else if (ignoreCache)
 				{
@@ -364,47 +362,25 @@ namespace NHibernate.Engine
 					{
 						return false;
 					}
-					return await (CheckCacheAndProcessResultAsync()).ConfigureAwait(false);
+					return null;
 				}
 				if (i == batchSize)
 				{
 					i = 1; // End of array, start filling again from start
-					if (idIndex.HasValue)
+					if (index == set.Count || idIndex.HasValue)
 					{
 						checkForEnd = true;
-						return index >= idIndex.Value + batchSize || index == set.Count;
+						return index == set.Count || index >= idIndex.Value + batchSize;
 					}
 				}
 				return false;
 			}
 		}
 
-		private async Task<bool> IsCachedAsync(EntityKey entityKey, IEntityPersister persister, CancellationToken cancellationToken)
-		{
-			cancellationToken.ThrowIfCancellationRequested();
-			if (persister.HasCache && context.Session.CacheMode.HasFlag(CacheMode.Get))
-			{
-				CacheKey key = context.Session.GenerateCacheKey(entityKey.Identifier, persister.IdentifierType, entityKey.EntityName);
-				return await (persister.Cache.Cache.GetAsync(key, cancellationToken)).ConfigureAwait(false) != null;
-			}
-			return false;
-		}
-
-		private async Task<bool> IsCachedAsync(object collectionKey, ICollectionPersister persister, CancellationToken cancellationToken)
-		{
-			cancellationToken.ThrowIfCancellationRequested();
-			if (persister.HasCache && context.Session.CacheMode.HasFlag(CacheMode.Get))
-			{
-				CacheKey cacheKey = context.Session.GenerateCacheKey(collectionKey, persister.KeyType, persister.Role);
-				return await (persister.Cache.Cache.GetAsync(cacheKey, cancellationToken)).ConfigureAwait(false) != null;
-			}
-			return false;
-		}
-
 		/// <summary>
 		/// Checks whether the given entity key indexes are cached.
 		/// </summary>
-		/// <param name="entityKeys">The list of pairs of entity keys and thier indexes.</param>
+		/// <param name="entityKeys">The list of pairs of entity keys and their indexes.</param>
 		/// <param name="keyIndexes">The array of indexes of <paramref name="entityKeys"/> that have to be checked.</param>
 		/// <param name="persister">The entity persister.</param>
 		/// <param name="batchableCache">The batchable cache.</param>
@@ -412,7 +388,7 @@ namespace NHibernate.Engine
 		/// <param name="cancellationToken">A cancellation token that can be used to cancel the work</param>
 		/// <returns>An array of booleans that contains the result for each key.</returns>
 		private async Task<bool[]> AreCachedAsync(List<KeyValuePair<EntityKey, int>> entityKeys, int[] keyIndexes, IEntityPersister persister,
-		                         IBatchableReadOnlyCache batchableCache, bool checkCache, CancellationToken cancellationToken)
+		                         CacheBase batchableCache, bool checkCache, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			var result = new bool[keyIndexes.Length];
@@ -420,6 +396,13 @@ namespace NHibernate.Engine
 			{
 				return result;
 			}
+
+			// Do not check the cache when disassembling entities from the cached query that were already checked
+			if (QueryCacheQueue != null && entityKeys.All(o => QueryCacheQueue.WasEntityKeyChecked(persister, o.Key)))
+			{
+				return result;
+			}
+
 			var cacheKeys = new object[keyIndexes.Length];
 			var i = 0;
 			foreach (var index in keyIndexes)
@@ -442,7 +425,7 @@ namespace NHibernate.Engine
 		/// <summary>
 		/// Checks whether the given collection key indexes are cached.
 		/// </summary>
-		/// <param name="collectionKeys">The list of pairs of collection entries and thier indexes.</param>
+		/// <param name="collectionKeys">The list of pairs of collection entries and their indexes.</param>
 		/// <param name="keyIndexes">The array of indexes of <paramref name="collectionKeys"/> that have to be checked.</param>
 		/// <param name="persister">The collection persister.</param>
 		/// <param name="batchableCache">The batchable cache.</param>
@@ -450,7 +433,7 @@ namespace NHibernate.Engine
 		/// <param name="cancellationToken">A cancellation token that can be used to cancel the work</param>
 		/// <returns>An array of booleans that contains the result for each key.</returns>
 		private async Task<bool[]> AreCachedAsync(List<KeyValuePair<KeyValuePair<CollectionEntry, IPersistentCollection>, int>> collectionKeys,
-		                         int[] keyIndexes, ICollectionPersister persister, IBatchableReadOnlyCache batchableCache,
+		                         int[] keyIndexes, ICollectionPersister persister, CacheBase batchableCache,
 		                         bool checkCache, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -459,6 +442,13 @@ namespace NHibernate.Engine
 			{
 				return result;
 			}
+
+			// Do not check the cache when disassembling collections from the cached query that were already checked
+			if (QueryCacheQueue != null && collectionKeys.All(o => QueryCacheQueue.WasCollectionEntryChecked(persister, o.Key.Key)))
+			{
+				return result;
+			}
+
 			var cacheKeys = new object[keyIndexes.Length];
 			var i = 0;
 			foreach (var index in keyIndexes)

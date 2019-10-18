@@ -55,7 +55,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Exec
 			}
 			else
 			{
-				action.AfterTransactionCompletionProcess(true);
+				action.ExecuteAfterTransactionCompletion(true);
 			}
 		}
 
@@ -143,7 +143,7 @@ namespace NHibernate.Hql.Ast.ANTLR.Exec
 
 		protected string GenerateIdSubselect(IQueryable persister)
 		{
-			return "select " + StringHelper.Join(", ", persister.IdentifierColumnNames) + " from " + persister.TemporaryIdTableName;
+			return "select " + string.Join(", ", persister.IdentifierColumnNames) + " from " + persister.TemporaryIdTableName;
 		}
 
 		protected virtual void CreateTemporaryTableIfNecessary(IQueryable persister, ISessionImplementor session)
@@ -190,17 +190,8 @@ namespace NHibernate.Hql.Ast.ANTLR.Exec
 
 				if (ShouldIsolateTemporaryTableDDL())
 				{
-					session.ConnectionManager.Transaction.RegisterSynchronization(new AfterTransactionCompletes((success) =>
-					{
-						if (Factory.Settings.IsDataDefinitionInTransactionSupported)
-						{
-							Isolater.DoIsolatedWork(work, session);
-						}
-						else
-						{
-							Isolater.DoNonTransactedWork(work, session);
-						}
-					}));
+					session.ConnectionManager.Transaction.RegisterSynchronization(
+						new IsolatedWorkAfterTransaction(work, session));
 				}
 				else
 				{

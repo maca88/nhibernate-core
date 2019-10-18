@@ -13,6 +13,7 @@ using NHibernate.Hql.Ast.ANTLR.Tree;
 using NHibernate.Hql.Ast.ANTLR.Util;
 using NHibernate.Loader.Hql;
 using NHibernate.Param;
+using NHibernate.Persister.Collection;
 using NHibernate.SqlCommand;
 using NHibernate.Type;
 using NHibernate.Util;
@@ -284,8 +285,25 @@ namespace NHibernate.Hql.Ast.ANTLR
 			get
 			{
 				ErrorIfDML();
-				IList<IASTNode> collectionFetches = ((QueryNode)_sqlAst).FromClause.GetCollectionFetches();
-				return collectionFetches != null && collectionFetches.Count > 0;
+				var collectionFetches = ((QueryNode)_sqlAst).FromClause.GetCollectionFetchesTyped();
+				return collectionFetches.Count > 0;
+			}
+		}
+
+		public ISet<ICollectionPersister> UncacheableCollectionPersisters
+		{
+			get
+			{
+				ErrorIfDML();
+				var persisters =
+					ASTUtil.IterateChildrenOfType<FromReferenceNode>(
+						       ((QueryNode) _sqlAst).WhereClause,
+						       skipSearchInChildrenWhen: node => node.FromElement != null)
+					       .Select(rn => rn.FromElement)
+					       .Where(fr => fr?.IsFetch == true && fr.QueryableCollection?.HasCache == true)
+					       .Select(fr => fr.QueryableCollection);
+
+				return new HashSet<ICollectionPersister>(persisters);
 			}
 		}
 

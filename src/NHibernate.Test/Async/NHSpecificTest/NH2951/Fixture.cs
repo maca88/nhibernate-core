@@ -18,6 +18,11 @@ namespace NHibernate.Test.NHSpecificTest.NH2951
 	[TestFixture]
 	public class FixtureAsync : BugTestCase
 	{
+		protected override bool AppliesTo(Dialect.Dialect dialect)
+		{
+			return dialect.SupportsScalarSubSelects;
+		}
+
 		protected override void OnTearDown()
 		{
 			using (ISession session = OpenSession())
@@ -31,7 +36,6 @@ namespace NHibernate.Test.NHSpecificTest.NH2951
 		}
 
 		[Test]
-        [Ignore("Not working.")]
 		public async Task UpdateWithSubqueryToJoinedSubclassAsync()
 		{
             using (ISession session = OpenSession())

@@ -9,12 +9,15 @@
 
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using NHibernate.Cache;
 using NHibernate.Driver;
 using NHibernate.Engine;
 using NHibernate.Exceptions;
+using NHibernate.Type;
 
 namespace NHibernate.Multi
 {
@@ -29,39 +32,40 @@ namespace NHibernate.Multi
 			cancellationToken.ThrowIfCancellationRequested();
 			if (_queries.Count == 0)
 				return;
-			var sessionFlushMode = Session.FlushMode;
-			if (FlushMode.HasValue)
-				Session.FlushMode = FlushMode.Value;
-			try
+			using (Session.BeginProcess())
 			{
-				Init();
-
-				if (!Session.Factory.ConnectionProvider.Driver.SupportsMultipleQueries)
-				{
-					foreach (var query in _queries)
-					{
-						await (query.ExecuteNonBatchedAsync(cancellationToken)).ConfigureAwait(false);
-					}
-					return;
-				}
-
-				using (Session.BeginProcess())
-				{
-					await (DoExecuteAsync(cancellationToken)).ConfigureAwait(false);
-				}
-			}
-			finally
-			{
-				if (_autoReset)
-				{
-					_queries.Clear();
-					_queriesByKey.Clear();
-				}
-				else
-					_executed = true;
-
+				var sessionFlushMode = Session.FlushMode;
 				if (FlushMode.HasValue)
-					Session.FlushMode = sessionFlushMode;
+					Session.FlushMode = FlushMode.Value;
+				try
+				{
+					Init();
+
+					if (!Session.Factory.ConnectionProvider.Driver.SupportsMultipleQueries)
+					{
+						foreach (var query in _queries)
+						{
+							await (query.ExecuteNonBatchedAsync(cancellationToken)).ConfigureAwait(false);
+						}
+
+						return;
+					}
+
+					await (ExecuteBatchedAsync(cancellationToken)).ConfigureAwait(false);
+				}
+				finally
+				{
+					if (_autoReset)
+					{
+						_queries.Clear();
+						_queriesByKey.Clear();
+					}
+					else
+						_executed = true;
+
+					if (FlushMode.HasValue)
+						Session.FlushMode = sessionFlushMode;
+				}
 			}
 		}
 
@@ -72,7 +76,14 @@ namespace NHibernate.Multi
 			{
 				return Task.FromCanceled<IList<TResult>>(cancellationToken);
 			}
-			return GetResultsAsync<TResult>(_queries[queryIndex], cancellationToken);
+			try
+			{
+				return GetResultsAsync<TResult>(_queries[queryIndex], cancellationToken);
+			}
+			catch (Exception ex)
+			{
+				return Task.FromException<IList<TResult>>(ex);
+			}
 		}
 
 		/// <inheritdoc />
@@ -82,7 +93,14 @@ namespace NHibernate.Multi
 			{
 				return Task.FromCanceled<IList<TResult>>(cancellationToken);
 			}
-			return GetResultsAsync<TResult>(_queriesByKey[querykey], cancellationToken);
+			try
+			{
+				return GetResultsAsync<TResult>(_queriesByKey[querykey], cancellationToken);
+			}
+			catch (Exception ex)
+			{
+				return Task.FromException<IList<TResult>>(ex);
+			}
 		}
 
 		private async Task<IList<TResult>> GetResultsAsync<TResult>(IQueryBatchItem query, CancellationToken cancellationToken)
@@ -90,77 +108,183 @@ namespace NHibernate.Multi
 			cancellationToken.ThrowIfCancellationRequested();
 			if (!_executed)
 				await (ExecuteAsync(cancellationToken)).ConfigureAwait(false);
-			return ((IQueryBatchItem<TResult>)query).GetResults();
+			return ((IQueryBatchItem<TResult>) query).GetResults();
 		}
 
-		private async Task CombineQueriesAsync(IResultSetsCommand resultSetsCommand, CancellationToken cancellationToken)
+		protected async Task ExecuteBatchedAsync(CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			foreach (var multiSource in _queries)
-			foreach (var cmd in await (multiSource.GetCommandsAsync(cancellationToken)).ConfigureAwait(false))
-			{
-				resultSetsCommand.Append(cmd);
-			}
-		}
-
-		protected async Task DoExecuteAsync(CancellationToken cancellationToken)
-		{
-			cancellationToken.ThrowIfCancellationRequested();
-			var resultSetsCommand = Session.Factory.ConnectionProvider.Driver.GetResultSetsCommand(Session);
-			await (CombineQueriesAsync(resultSetsCommand, cancellationToken)).ConfigureAwait(false);
-
 			var querySpaces = new HashSet<string>(_queries.SelectMany(t => t.GetQuerySpaces()));
-			if (resultSetsCommand.HasQueries)
+			if (querySpaces.Count > 0)
 			{
+				// The auto-flush must be handled before querying the cache, because an auto-flush may
+				// have to invalidate cached data, data which otherwise would cause a command to be skipped.
 				await (Session.AutoFlushIfRequiredAsync(querySpaces, cancellationToken)).ConfigureAwait(false);
 			}
 
-			bool statsEnabled = Session.Factory.Statistics.IsStatisticsEnabled;
+			await (GetCachedResultsAsync(cancellationToken)).ConfigureAwait(false);
+
+			var resultSetsCommand = Session.Factory.ConnectionProvider.Driver.GetResultSetsCommand(Session);
+			CombineQueries(resultSetsCommand);
+
 			Stopwatch stopWatch = null;
-			if (statsEnabled)
+			if (Session.Factory.Statistics.IsStatisticsEnabled)
 			{
-				stopWatch = new Stopwatch();
-				stopWatch.Start();
+				stopWatch = Stopwatch.StartNew();
 			}
+
 			if (Log.IsDebugEnabled())
 			{
 				Log.Debug("Multi query with {0} queries: {1}", _queries.Count, resultSetsCommand.Sql);
 			}
 
-			int rowCount = 0;
+			var rowCount = 0;
+			CacheBatcher cacheBatcher = null;
 			try
 			{
 				if (resultSetsCommand.HasQueries)
 				{
+					cacheBatcher = new CacheBatcher(Session);
 					using (var reader = await (resultSetsCommand.GetReaderAsync(Timeout, cancellationToken)).ConfigureAwait(false))
 					{
-						foreach (var multiSource in _queries)
+						foreach (var query in _queries)
 						{
-							foreach (var resultSetHandler in multiSource.GetResultSetHandler())
+							if (query.CachingInformation != null)
 							{
-								rowCount += resultSetHandler(reader);
-								await (reader.NextResultAsync(cancellationToken)).ConfigureAwait(false);
+								foreach (var cachingInfo in query.CachingInformation)
+								{
+									cachingInfo.SetCacheBatcher(cacheBatcher);
+								}
 							}
+
+							rowCount += await (query.ProcessResultsSetAsync(reader, cancellationToken)).ConfigureAwait(false);
 						}
 					}
 				}
 
-				foreach (var multiSource in _queries)
+				foreach (var query in _queries)
 				{
-					await (multiSource.ProcessResultsAsync(cancellationToken)).ConfigureAwait(false);
+					//TODO 6.0: Replace with query.ProcessResults();
+					if (query is IQueryBatchItemWithAsyncProcessResults q)
+						await (q.ProcessResultsAsync(cancellationToken)).ConfigureAwait(false);
+					else
+						query.ProcessResults();
 				}
+
+				var executeBatchTask = cacheBatcher?.ExecuteBatchAsync(cancellationToken);
+
+				if (executeBatchTask != null)
+
+				{
+
+					await (executeBatchTask).ConfigureAwait(false);
+
+				}
+				await (PutCacheableResultsAsync(cancellationToken)).ConfigureAwait(false);
 			}
 			catch (OperationCanceledException) { throw; }
 			catch (Exception sqle)
 			{
-				Log.Error(sqle, "Failed to execute multi query: [{0}]", resultSetsCommand.Sql);
-				throw ADOExceptionHelper.Convert(Session.Factory.SQLExceptionConverter, sqle, "Failed to execute multi query", resultSetsCommand.Sql);
+				Log.Error(sqle, "Failed to execute query batch: [{0}]", resultSetsCommand.Sql);
+				throw ADOExceptionHelper.Convert(
+					Session.Factory.SQLExceptionConverter,
+					sqle,
+					"Failed to execute query batch",
+					resultSetsCommand.Sql);
 			}
 
-			if (statsEnabled)
+			if (stopWatch != null && resultSetsCommand.HasQueries)
 			{
 				stopWatch.Stop();
-				Session.Factory.StatisticsImplementor.QueryExecuted($"{_queries.Count} queries", rowCount, stopWatch.Elapsed);
+				Session.Factory.StatisticsImplementor.QueryExecuted(
+					resultSetsCommand.Sql.ToString(),
+					rowCount,
+					stopWatch.Elapsed);
+			}
+		}
+
+		private async Task GetCachedResultsAsync(CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var statisticsEnabled = Session.Factory.Statistics.IsStatisticsEnabled;
+			var queriesByCaches = GetQueriesByCaches(ci => ci.CanGetFromCache);
+			foreach (var queriesByCache in queriesByCaches)
+			{
+				var queryInfos = queriesByCache.ToArray();
+				var cache = queriesByCache.Key;
+				var keys = new QueryKey[queryInfos.Length];
+				var parameters = new QueryParameters[queryInfos.Length];
+				var returnTypes = new ICacheAssembler[queryInfos.Length][];
+				var spaces = new ISet<string>[queryInfos.Length];
+				for (var i = 0; i < queryInfos.Length; i++)
+				{
+					var queryInfo = queryInfos[i];
+					keys[i] = queryInfo.CacheKey;
+					parameters[i] = queryInfo.Parameters;
+					returnTypes[i] = queryInfo.Parameters.HasAutoDiscoverScalarTypes
+						? null
+						: queryInfo.CacheKey.ResultTransformer.GetCachedResultTypes(queryInfo.GetCacheTypes());
+					spaces[i] = queryInfo.QuerySpaces;
+				}
+
+				var results = await (cache.GetManyAsync(keys, parameters, returnTypes, spaces, Session, cancellationToken)).ConfigureAwait(false);
+
+				for (var i = 0; i < queryInfos.Length; i++)
+				{
+					var queryInfo = queryInfos[i];
+					queryInfo.SetCachedResult(results[i]);
+
+					if (statisticsEnabled)
+					{
+						var queryIdentifier = queryInfo.QueryIdentifier;
+						if (results[i] == null)
+						{
+							Session.Factory.StatisticsImplementor.QueryCacheMiss(queryIdentifier, cache.RegionName);
+						}
+						else
+						{
+							Session.Factory.StatisticsImplementor.QueryCacheHit(queryIdentifier, cache.RegionName);
+						}
+					}
+				}
+			}
+		}
+
+		private async Task PutCacheableResultsAsync(CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var statisticsEnabled = Session.Factory.Statistics.IsStatisticsEnabled;
+			var queriesByCaches = GetQueriesByCaches(ci => ci.ResultToCache != null);
+			foreach (var queriesByCache in queriesByCaches)
+			{
+				var queryInfos = queriesByCache.ToArray();
+				var cache = queriesByCache.Key;
+				var keys = new QueryKey[queryInfos.Length];
+				var parameters = new QueryParameters[queryInfos.Length];
+				var returnTypes = new ICacheAssembler[queryInfos.Length][];
+				var results = new IList[queryInfos.Length];
+				for (var i = 0; i < queryInfos.Length; i++)
+				{
+					var queryInfo = queryInfos[i];
+					keys[i] = queryInfo.CacheKey;
+					parameters[i] = queryInfo.Parameters;
+					returnTypes[i] = queryInfo.CacheKey.ResultTransformer.GetCachedResultTypes(queryInfo.GetCacheTypes());
+					results[i] = queryInfo.ResultToCache;
+				}
+
+				var putted = await (cache.PutManyAsync(keys, parameters, returnTypes, results, Session, cancellationToken)).ConfigureAwait(false);
+
+				if (!statisticsEnabled)
+					continue;
+
+				for (var i = 0; i < queryInfos.Length; i++)
+				{
+					if (putted[i])
+					{
+						Session.Factory.StatisticsImplementor.QueryCachePut(
+							queryInfos[i].QueryIdentifier, cache.RegionName);
+					}
+				}
 			}
 		}
 	}

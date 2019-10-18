@@ -43,6 +43,8 @@ namespace NHibernate.Util
 
 		public const int AliasTruncateLength = 10;
 
+		//Since 5.3
+		[Obsolete("Please use string.Join instead")]
 		public static string Join(string separator, IEnumerable objects)
 		{
 			StringBuilder buf = new StringBuilder();
@@ -62,11 +64,6 @@ namespace NHibernate.Util
 			return buf.ToString();
 		}
 
-		internal static string Join<T>(string separator, IEnumerable<T> objects)
-		{
-			return string.Join(separator, objects);
-		}
-
 		/// <summary>
 		/// 
 		/// </summary>
@@ -83,11 +80,16 @@ namespace NHibernate.Util
 			return buf.ToString();
 		}
 
+		//Since v5.3
+		[Obsolete("Please use string.Replace or Regex.Replace instead.")]
 		public static string Replace(string template, string placeholder, string replacement)
 		{
-			return Replace(template, placeholder, replacement, false);
+			// sometimes a null value will get passed in here -> SqlWhereStrings are a good example
+			return template?.Replace(placeholder, replacement);
 		}
 
+		//Since v5.3
+		[Obsolete("Please use string.Replace or Regex.Replace instead.")]
 		public static string Replace(string template, string placeholder, string replacement, bool wholeWords)
 		{
 			Predicate<string> isWholeWord = c => WhiteSpace.Contains(c) || ClosedParen.Equals(c) || Comma.Equals(c);
@@ -129,6 +131,8 @@ namespace NHibernate.Util
 			}
 		}
 
+		//Since v5.3
+		[Obsolete("Please use string.Replace or Regex.Replace instead.")]
 		public static string ReplaceWholeWord(this string template, string placeholder, string replacement)
 		{
 			Predicate<string> isWholeWord = s => !Char.IsLetterOrDigit(s[0]);

@@ -183,6 +183,24 @@ namespace NHibernate.Linq.Functions
 			return treeBuilder.MethodCall("substring", stringExpr, start, length);
 		}
 	}
+	
+	public class GetCharsGenerator : BaseHqlGeneratorForMethod
+	{
+		public GetCharsGenerator()
+		{
+			SupportedMethods = new[]
+			{
+				ReflectHelper.GetMethod<string, char>(s => s[0])
+			};
+		}
+
+		public override HqlTreeNode BuildHql(MethodInfo method, Expression targetObject, ReadOnlyCollection<Expression> arguments, HqlTreeBuilder treeBuilder, IHqlExpressionVisitor visitor)
+		{
+			var expression = visitor.Visit(targetObject).AsExpression();
+			var index = treeBuilder.Add(visitor.Visit(arguments[0]).AsExpression(), treeBuilder.Constant(1));
+			return treeBuilder.MethodCall("substring", expression, index, treeBuilder.Constant(1));
+		}
+	}
 
 	public class IndexOfGenerator : BaseHqlGeneratorForMethod
 	{
@@ -299,14 +317,15 @@ namespace NHibernate.Linq.Functions
 
 	public class ToStringHqlGeneratorForMethod : IHqlGeneratorForMethod
 	{
-		public IEnumerable<MethodInfo> SupportedMethods
-		{
-			get { throw new NotSupportedException(); }
-		}
+		public IEnumerable<MethodInfo> SupportedMethods => throw new NotSupportedException();
 
 		public HqlTreeNode BuildHql(MethodInfo method, Expression targetObject, ReadOnlyCollection<Expression> arguments, HqlTreeBuilder treeBuilder, IHqlExpressionVisitor visitor)
 		{
-			return treeBuilder.MethodCall("str", visitor.Visit(targetObject).AsExpression());
+			var methodName = targetObject.Type == typeof(Guid) || targetObject.Type == typeof(Guid?)
+				? "strguid"
+				: "str";
+
+			return treeBuilder.MethodCall(methodName, visitor.Visit(targetObject).AsExpression());
 		}
 	}
 }

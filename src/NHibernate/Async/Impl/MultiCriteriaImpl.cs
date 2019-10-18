@@ -117,7 +117,7 @@ namespace NHibernate.Impl
 				result = list;
 				if (session.CacheMode.HasFlag(CacheMode.Put))
 				{
-					bool put = await (queryCache.PutAsync(key, new ICacheAssembler[] { assembler }, new object[] { list }, combinedParameters.NaturalKeyLookup, session, cancellationToken)).ConfigureAwait(false);
+					bool put = await (queryCache.PutAsync(key, combinedParameters, new ICacheAssembler[] { assembler }, new object[] { list }, session, cancellationToken)).ConfigureAwait(false);
 					if (put && factory.Statistics.IsStatisticsEnabled)
 					{
 						factory.StatisticsImplementor.QueryCachePut(key.ToString(), queryCache.RegionName);
@@ -145,13 +145,13 @@ namespace NHibernate.Impl
 		private async Task GetResultsFromDatabaseAsync(IList results, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			bool statsEnabled = session.Factory.Statistics.IsStatisticsEnabled;
-			var stopWatch = new Stopwatch();
-			if (statsEnabled)
+			Stopwatch stopWatch = null;
+			if (session.Factory.Statistics.IsStatisticsEnabled)
 			{
-				stopWatch.Start();
+				stopWatch = Stopwatch.StartNew();
 			}
 			int rowCount = 0;
+			var cacheBatcher = new CacheBatcher(session);
 
 			try
 			{
@@ -184,7 +184,8 @@ namespace NHibernate.Impl
 
 							object o =
 								await (loader.GetRowFromResultSetAsync(reader, session, queryParameters, loader.GetLockModes(queryParameters.LockModes),
-																					 null, hydratedObjects[i], keys, true, cancellationToken)).ConfigureAwait(false);
+								                           null, hydratedObjects[i], keys, true, null, null,
+								                           (persister, data) => cacheBatcher.AddToBatch(persister, data), cancellationToken)).ConfigureAwait(false);
 							if (createSubselects[i])
 							{
 								subselectResultKeys[i].Add(keys);
@@ -200,13 +201,15 @@ namespace NHibernate.Impl
 					for (int i = 0; i < loaders.Count; i++)
 					{
 						CriteriaLoader loader = loaders[i];
-						await (loader.InitializeEntitiesAndCollectionsAsync(hydratedObjects[i], reader, session, session.DefaultReadOnly, cancellationToken)).ConfigureAwait(false);
+						await (loader.InitializeEntitiesAndCollectionsAsync(hydratedObjects[i], reader, session, session.DefaultReadOnly, cacheBatcher, cancellationToken)).ConfigureAwait(false);
 
 						if (createSubselects[i])
 						{
 							loader.CreateSubselects(subselectResultKeys[i], parameters[i], session);
 						}
 					}
+
+					await (cacheBatcher.ExecuteBatchAsync(cancellationToken)).ConfigureAwait(false);
 				}
 			}
 			catch (OperationCanceledException) { throw; }
@@ -215,7 +218,7 @@ namespace NHibernate.Impl
 				log.Error(sqle, "Failed to execute multi criteria: [{0}]", resultSetsCommand.Sql);
 				throw ADOExceptionHelper.Convert(session.Factory.SQLExceptionConverter, sqle, "Failed to execute multi criteria", resultSetsCommand.Sql);
 			}
-			if (statsEnabled)
+			if (stopWatch != null)
 			{
 				stopWatch.Stop();
 				session.Factory.StatisticsImplementor.QueryExecuted(string.Format("{0} queries (MultiCriteria)", loaders.Count), rowCount, stopWatch.Elapsed);

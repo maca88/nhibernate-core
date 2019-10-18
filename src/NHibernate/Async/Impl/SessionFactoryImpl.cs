@@ -63,6 +63,16 @@ namespace NHibernate.Impl
 		public async Task CloseAsync(CancellationToken cancellationToken = default(CancellationToken))
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			if (isClosed)
+			{
+				if (log.IsDebugEnabled())
+				{
+					log.Debug("Already closed");
+				}
+
+				return;
+			}
+
 			log.Info("Closing");
 
 			isClosed = true;
@@ -85,14 +95,15 @@ namespace NHibernate.Impl
 
 			if (settings.IsQueryCacheEnabled)
 			{
-				queryCache.Destroy();
-
 				foreach (var cache in queryCaches.Values)
 				{
 					cache.Value.Destroy();
 				}
+			}
 
-				updateTimestampsCache.Destroy();
+			foreach (var cache in _allCacheRegions.Values)
+			{
+				cache.Destroy();
 			}
 
 			settings.CacheProvider.Stop();

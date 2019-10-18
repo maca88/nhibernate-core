@@ -170,6 +170,7 @@ namespace NHibernate.Dialect
 		{
 			RegisterFunction("substring", new EmulatedLengthSubstringFunction());
 			RegisterFunction("str", new SQLFunctionTemplate(NHibernateUtil.String, "cast(?1 as nvarchar)"));
+			RegisterFunction("strguid", new SQLFunctionTemplate(NHibernateUtil.String, "cast(?1 as nvarchar)"));
 
 			RegisterFunction("current_timestamp", new NoArgSQLFunction("getdate", NHibernateUtil.DateTime, true));
 			RegisterFunction("date", new SQLFunctionTemplate(NHibernateUtil.DateTime, "dateadd(dd, 0, datediff(dd, 0, ?1))"));
@@ -263,7 +264,7 @@ namespace NHibernate.Dialect
 
 		public override IDataBaseSchema GetDataBaseSchema(DbConnection connection)
 		{
-			return new MsSqlCeDataBaseSchema(connection);
+			return new MsSqlCeDataBaseSchema(connection, this);
 		}
 
 		public override SqlString GetLimitString(SqlString querySqlString, SqlString offset, SqlString limit)

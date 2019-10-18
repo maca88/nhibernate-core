@@ -47,9 +47,9 @@ namespace NHibernate.Hql.Ast.ANTLR
 		//Maps each top-level result variable to its SelectExpression;
 		//(excludes result variables defined in subqueries)
 		//
-		private readonly IDictionary<String, ISelectExpression> selectExpressionsByResultVariable = new Dictionary<string, ISelectExpression>();
+		private readonly Dictionary<String, ISelectExpression> selectExpressionsByResultVariable = new Dictionary<string, ISelectExpression>();
 
-		private readonly ISet<string> _querySpaces = new HashSet<string>();
+		private readonly HashSet<string> _querySpaces = new HashSet<string>();
 
 		private readonly LiteralProcessor _literalProcessor;
 
@@ -336,7 +336,9 @@ namespace NHibernate.Hql.Ast.ANTLR
 					}
 					else if (IsDatabaseGeneratedTimestamp(versionType))
 					{
-						string functionName = SessionFactoryHelper.Factory.Dialect.CurrentTimestampSQLFunctionName;
+						var functionName = IsUtcDatabaseGeneratedTimestamp(versionType)
+							? SessionFactoryHelper.Factory.Dialect.CurrentUtcTimestampSQLFunctionName
+							: SessionFactoryHelper.Factory.Dialect.CurrentTimestampSQLFunctionName;
 						versionValueNode = ASTFactory.CreateNode(SQL_TOKEN, functionName);
 					}
 					else
@@ -365,6 +367,11 @@ namespace NHibernate.Hql.Ast.ANTLR
 			return type is DbTimestampType;
 		}
 
+		private static bool IsUtcDatabaseGeneratedTimestamp(IType type)
+		{
+			return type is UtcDbTimestampType;
+		}
+
 		private static bool IsIntegral(IType type)
 		{
 			return
@@ -383,18 +390,14 @@ namespace NHibernate.Hql.Ast.ANTLR
 		{
 			statement.FromClause.Resolve();
 
-			var fromElement = (FromElement)statement.FromClause.GetFromElements()[0];
+			var fromElement = statement.FromClause.GetFromElementsTyped()[0];
 			IQueryable persister = fromElement.Queryable;
 			// Make #@%$^#^&# sure no alias is applied to the table name
 			fromElement.Text = persister.TableName;
 
-			// append any filter fragments; the EMPTY_MAP is used under the assumption that
-			// currently enabled filters should not affect this process
-			if (persister.DiscriminatorType != null)
-			{
-				new SyntheticAndFactory(this)
-					.AddDiscriminatorWhereFragment(statement, persister, CollectionHelper.EmptyDictionary<string, IFilter>(), fromElement.TableAlias);
-			}
+			// Use the same logic as query does in order to support session filters
+			var joinProcessor = new JoinProcessor(this);
+			joinProcessor.ProcessJoins(statement);
 		}
 
 		void AfterStatementCompletion(string statementName)
@@ -419,6 +422,11 @@ namespace NHibernate.Hql.Ast.ANTLR
 				throw new SemanticException("Mismatched clause parsing");
 			}
 			_currentClauseType=clauseStack.Pop();
+		}
+
+		void FinishFromClause()
+		{
+			_currentFromClause.FinishInit();
 		}
 
 		IASTNode CreateIntoClause(string path, IASTNode propertySpec)
@@ -483,10 +491,11 @@ namespace NHibernate.Hql.Ast.ANTLR
 				// After that, process the JOINs.
 				// Invoke a delegate to do the work, as this is farily complex.
 				JoinProcessor joinProcessor = new JoinProcessor( this );
-				joinProcessor.ProcessJoins( qn );
+				IRestrictableStatement rs = qn;
+				joinProcessor.ProcessJoins(rs);
 
 				// Attach any mapping-defined "ORDER BY" fragments
-				foreach (FromElement fromElement in qn.FromClause.GetProjectionList())
+				foreach (FromElement fromElement in qn.FromClause.GetProjectionListTyped())
 				{
 					if ( fromElement.IsFetch && fromElement.QueryableCollection != null ) 
 					{
@@ -579,7 +588,7 @@ namespace NHibernate.Hql.Ast.ANTLR
 			// Turn off includeSubclasses on all FromElements.
 			FromClause from = CurrentFromClause;
 
-			foreach (FromElement fromElement in from.GetFromElements())
+			foreach (FromElement fromElement in from.GetFromElementsTyped())
 			{
 				fromElement.IncludeSubclasses = false;
 			}
@@ -672,6 +681,20 @@ namespace NHibernate.Hql.Ast.ANTLR
 			{
 				throw new QueryException( "fetch not allowed in subquery from-elements" );
 			}
+
+			// the incoming "path" can be either:
+			//		1) an implicit join path (join p.address.city)
+			// 		2) an entity-join (join com.acme.User)
+			//
+			// so make the proper interpretation here...
+			var entityJoinReferencedPersister = ResolveEntityJoinReferencedPersister(path);
+			if (entityJoinReferencedPersister != null)
+			{
+				var entityJoin = CreateEntityJoin(entityJoinReferencedPersister, alias, joinType, with);
+				((FromReferenceNode) path).FromElement = entityJoin;
+				SetPropertyFetch(entityJoin, propertyFetch, alias);
+				return;
+			}
 			// The path AST should be a DotNode, and it should have been evaluated already.
 			if ( path.Type != DOT ) 
 			{
@@ -702,7 +725,7 @@ namespace NHibernate.Hql.Ast.ANTLR
 				{
 					throw new InvalidPathException("Invalid join: " + dot.Path);
 				}
-				fromElement.SetAllPropertyFetch(propertyFetch != null);
+				SetPropertyFetch(fromElement, propertyFetch, alias);
 
 				if (with != null)
 				{
@@ -713,6 +736,11 @@ namespace NHibernate.Hql.Ast.ANTLR
 
 					HandleWithFragment(fromElement, with);
 				}
+
+				if (fromElement.Parent == null)
+				{
+					fromElement.FromClause.AddChild(fromElement);
+				}
 			}
 
 			if ( log.IsDebugEnabled() )
@@ -721,11 +749,115 @@ namespace NHibernate.Hql.Ast.ANTLR
 			}
 		}
 
+		private EntityJoinFromElement CreateEntityJoin(
+			IQueryable entityPersister,
+			IASTNode aliasNode,
+			int joinType,
+			IASTNode with)
+		{
+			if (log.IsDebugEnabled())
+			{
+				log.Debug($"Creating entity-join FromElement [{aliasNode?.Text} -> {entityPersister.Name}]");
+			}
+
+			EntityJoinFromElement join = new EntityJoinFromElement(
+					CurrentFromClause,
+					entityPersister,
+					JoinProcessor.ToHibernateJoinType(joinType),
+					aliasNode?.Text
+			);
+
+			if (with != null)
+			{
+				HandleWithFragment(join, with);
+			}
+
+			return join;
+		}
+
+		private IQueryable ResolveEntityJoinReferencedPersister(IASTNode path)
+		{
+			if (path.Type == IDENT)
+			{
+				var pathIdentNode = (IdentNode) path;
+				string name = path.Text ?? pathIdentNode.OriginalText;
+				return SessionFactoryHelper.FindQueryableUsingImports(name);
+			}
+			else if (path.Type == DOT)
+			{
+				var pathText = ASTUtil.GetPathText(path);
+				return SessionFactoryHelper.FindQueryableUsingImports(pathText);
+			}
+			return null;
+		}
+
+		private static string GetPropertyPath(DotNode dotNode, IASTNode alias)
+		{
+			var lhs = dotNode.GetLhs();
+			var rhs = (SqlNode) lhs.NextSibling;
+
+			if (lhs is DotNode nextDotNode)
+			{
+				return GetPropertyPath(nextDotNode, alias) + "." + rhs.OriginalText;
+			}
+
+			var path = rhs.OriginalText;
+
+			if (alias != null && alias.Text == lhs.Text)
+			{
+				return path;
+			}
+
+			return lhs.Path + "." + path;
+		}
+
 		IASTNode CreateFromElement(string path, IASTNode pathNode, IASTNode alias, IASTNode propertyFetch)
 		{
 			FromElement fromElement = _currentFromClause.AddFromElement(path, alias);
-			fromElement.SetAllPropertyFetch(propertyFetch != null);
+			SetPropertyFetch(fromElement, propertyFetch, alias);
 			return fromElement;
+		}
+
+		static void SetPropertyFetch(FromElement fromElement, IASTNode propertyFetch, IASTNode alias)
+		{
+			if (propertyFetch == null)
+			{
+				return;
+			}
+
+			if (propertyFetch.ChildCount == 0)
+			{
+				fromElement.SetAllPropertyFetch(true);
+			}
+			else
+			{
+				var propertyPaths = new string[propertyFetch.ChildCount / 2];
+				for (var i = 1; i < propertyFetch.ChildCount; i = i + 2)
+				{
+					string propertyPath;
+					var child = propertyFetch.GetChild(i);
+
+					// o.PropName
+					if (child is DotNode dotNode)
+					{
+						dotNode.JoinType = JoinType.None;
+						dotNode.PropertyPath = GetPropertyPath(dotNode, alias);
+						propertyPath = dotNode.PropertyPath;
+					}
+					else if (child is IdentNode identNode)
+					{
+						propertyPath = identNode.OriginalText;
+					}
+					else
+					{
+						throw new InvalidOperationException($"Unable to determine property path for AST node: {child.ToStringTree()}");
+					}
+
+					propertyPaths[(i - 1) / 2] = propertyPath;
+				}
+
+				fromElement.FetchLazyProperties = propertyPaths;
+			}
 		}
 
 		IASTNode CreateFromFilterElement(IASTNode filterEntity, IASTNode alias)
@@ -839,10 +971,10 @@ namespace NHibernate.Hql.Ast.ANTLR
 				return false;
 			}
 
-			IList<IASTNode> fromElements = _currentFromClause.GetExplicitFromElements();
-			if ( fromElements.Count == 1 ) 
+			var fromElements = _currentFromClause.GetExplicitFromElementsTyped();
+			if ( fromElements.Count == 1 )
 			{
-				FromElement fromElement = (FromElement) fromElements[0];
+				FromElement fromElement = fromElements[0];
 
 				log.Info("attempting to resolve property [{0}] as a non-qualified ref", identText);
 
@@ -855,7 +987,7 @@ namespace NHibernate.Hql.Ast.ANTLR
 
 		IASTNode LookupNonQualifiedProperty(IASTNode property)
 		{
-			FromElement fromElement = (FromElement) _currentFromClause.GetExplicitFromElements()[0];
+			FromElement fromElement = _currentFromClause.GetExplicitFromElementsTyped()[0];
 			IASTNode syntheticDotNode = GenerateSyntheticDotNodeForNonQualifiedPropertyRef( property, fromElement );
 			return LookupProperty( syntheticDotNode, false, _currentClauseType == SELECT );
 		}
@@ -977,8 +1109,7 @@ namespace NHibernate.Hql.Ast.ANTLR
 		{
 			get
 			{
-				// Note: once we add support for "JOIN ... ON ...",
-				// the ON clause needs to get included here
+				//Note: "JOIN ... ON ..." case is treated as "JOIN ... WITH ..." by parser 
 				return CurrentClauseType == WHERE ||
 						CurrentClauseType == WITH ||
 						IsInCase;
@@ -1074,12 +1205,6 @@ namespace NHibernate.Hql.Ast.ANTLR
 				WithClauseVisitor visitor = new WithClauseVisitor(fromElement);
 				NodeTraverser traverser = new NodeTraverser(visitor);
 				traverser.TraverseDepthFirst(hqlSqlWithNode);
-				FromElement referencedFromElement = visitor.GetReferencedFromElement();
-				if (referencedFromElement != fromElement)
-				{
-					throw new InvalidWithClauseException(
-						"with-clause expressions did not reference from-clause element to which the with-clause was associated");
-				}
 				SqlGenerator sql = new SqlGenerator(_sessionFactoryHelper.Factory, new CommonTreeNodeStream(adaptor, hqlSqlWithNode.GetChild(0)));
 
 				sql.whereExpr();
@@ -1105,15 +1230,15 @@ namespace NHibernate.Hql.Ast.ANTLR
 	class WithClauseVisitor : IVisitationStrategy 
 	{
 		private readonly FromElement _joinFragment;
-		private FromElement _referencedFromElement;
-		private String _joinAlias;
+		private readonly bool _multiTable;
 
 		public WithClauseVisitor(FromElement fromElement) 
 		{
 			_joinFragment = fromElement;
+			_multiTable = (fromElement.EntityPersister as IQueryable)?.IsMultiTable == true;
 		}
 
-		public void Visit(IASTNode node) 
+		public void Visit(IASTNode node)
 		{
 			// todo : currently expects that the individual with expressions apply to the same sql table join.
 			//      This may not be the case for joined-subclass where the property values
@@ -1125,39 +1250,30 @@ namespace NHibernate.Hql.Ast.ANTLR
 			//          2) here we would need to track each comparison individually, along with
 			//              the join alias to which it applies and then pass that information
 			//              back to the FromElement so it can pass it along to the JoinSequence
-			if ( node is DotNode ) 
+			if (_multiTable && node is DotNode dotNode)
 			{
-				DotNode dotNode = ( DotNode ) node;
 				FromElement fromElement = dotNode.FromElement;
-				if ( _referencedFromElement != null )
+				if (_joinFragment == fromElement)
 				{
-					if ( fromElement != _referencedFromElement ) 
-					{
-						throw new HibernateException( "with-clause referenced two different from-clause elements" );
-					}
-				}
-				else
-				{
-					_referencedFromElement = fromElement;
-					_joinAlias = ExtractAppliedAlias( dotNode );
-
+					var joinAlias = ExtractAppliedAlias(dotNode);
+					//See WithClauseFixture.InvalidWithSemantics to understand the logic behind this check
 					// todo : temporary
 					//      needed because currently persister is the one that
 					//      creates and renders the join fragments for inheritence
 					//      hierarchies...
-					if ( _joinAlias != _referencedFromElement.TableAlias) 
+					if (joinAlias != _joinFragment.TableAlias)
 					{
-						throw new InvalidWithClauseException( "with clause can only reference columns in the driving table" );
+						throw new InvalidWithClauseException("with clause can only reference columns in the driving table");
 					}
 				}
 			}
-			else if ( node is ParameterNode ) 
+			else if (node is ParameterNode paramNode)
 			{
-				ApplyParameterSpecification(((ParameterNode) node).HqlParameterSpecification);
+				ApplyParameterSpecification(paramNode.HqlParameterSpecification);
 			}
-			else if ( node is IParameterContainer ) 
+			else if (node is IParameterContainer paramContainer)
 			{
-				ApplyParameterSpecifications( ( IParameterContainer ) node );
+				ApplyParameterSpecifications(paramContainer);
 			}
 		}
 
@@ -1183,15 +1299,9 @@ namespace NHibernate.Hql.Ast.ANTLR
 			return dotNode.Text.Substring( 0, dotNode.Text.IndexOf( '.' ) );
 		}
 
-		public FromElement GetReferencedFromElement() 
+		public String GetJoinAlias()
 		{
-			return _referencedFromElement;
-		}
-
-		public String GetJoinAlias() 
-		{
-			return _joinAlias;
+			return _joinFragment.TableAlias;
 		}
 	}
-
 }

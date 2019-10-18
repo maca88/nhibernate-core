@@ -55,6 +55,27 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 		}
 
 		[Test]
+		public async Task SelectModeDetachedQueryOverAsync()
+		{
+			using (var sqlLog = new SqlLogSpy())
+			using (var session = OpenSession())
+			{
+				EntityComplex root = null;
+				root = await (QueryOver.Of(() => root)
+								.Where(x => x.Id == _parentEntityComplexId)
+								.Fetch(SelectMode.Fetch, r => r.Child1)
+								.GetExecutableQueryOver(session)
+								.SingleOrDefaultAsync());
+
+				Assert.That(root, Is.Not.Null);
+				Assert.That(NHibernateUtil.IsInitialized(root), Is.True);
+				Assert.That(root.Child1, Is.Not.Null);
+				Assert.That(NHibernateUtil.IsInitialized(root.Child1), Is.True, "Joined ManyToOne Child1 should not be fetched.");
+				Assert.That(sqlLog.Appender.GetEvents().Length, Is.EqualTo(1), "Only one SQL select is expected");
+			}
+		}
+
+		[Test]
 		public async Task SelectModeFetchAsync()
 		{
 			using (var sqlLog = new SqlLogSpy())
@@ -395,6 +416,23 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 			}
 		}
 
+		[Test]
+		public async Task OrderedInnerJoinFetchAsync()
+		{
+			using (var session = OpenSession())
+			{
+				var list = await (session.QueryOver<EntityComplex>()
+					.Where(ec => ec.Id == _parentEntityComplexId)
+					.JoinQueryOver(c => c.ChildrenList).Fetch(SelectMode.Fetch, child => child)
+					.TransformUsing(Transformers.DistinctRootEntity)
+					.ListAsync());
+
+				var childList = list[0].ChildrenList;
+				Assert.That(list[0].ChildrenList.Count, Is.GreaterThan(1));
+				Assert.That(list[0].ChildrenList, Is.EqualTo(list[0].ChildrenList.OrderByDescending(c => c.OrderIdx)), "wrong order");
+			}
+		}
+
 		[Test, Obsolete]
 		public async Task FetchModeEagerForLazyAsync()
 		{
@@ -562,7 +600,7 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 						m.Column("SameTypeChildId");
 						m.ForeignKey("none");
 					});
-					MapList(rc, ep => ep.ChildrenList);
+					MapList(rc, ep => ep.ChildrenList, mapper: m => m.OrderBy("OrderIdx desc"));
 					MapList(rc, ep => ep.ChildrenListEmpty);
 				});
 
@@ -570,7 +608,11 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 				mapper,
 				default(EntitySimpleChild),
 				c => c.Children,
-				rc => { rc.Property(sc => sc.LazyProp, mp => mp.Lazy(true)); });
+				rc =>
+				{
+					rc.Property(sc => sc.LazyProp, mp => mp.Lazy(true));
+					rc.Property(sc => sc.OrderIdx);
+				});
 			MapSimpleChild(mapper, default(Level2Child), c => c.Children);
 			MapSimpleChild<Level3Child>(mapper);
 
@@ -598,7 +640,7 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 				});
 		}
 
-		private static void MapList<TParent, TElement>(IClassMapper<TParent> rc, Expression<Func<TParent, IEnumerable<TElement>>> expression, CollectionFetchMode fetchMode =  null) where TParent : class
+		private static void MapList<TParent, TElement>(IClassMapper<TParent> rc, Expression<Func<TParent, IEnumerable<TElement>>> expression, CollectionFetchMode fetchMode =  null, Action<IBagPropertiesMapper<TParent, TElement>> mapper = null) where TParent : class
 		{
 			rc.Bag(
 				expression,
@@ -620,6 +662,7 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 					{
 						m.Fetch(fetchMode);
 					}
+					mapper?.Invoke(m);
 				},
 				a => a.OneToMany());
 		}
@@ -682,13 +725,25 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 								},
 							}
 						}
-					}
+					},
+					OrderIdx = 100
 				};
 
 				var child2 = new EntitySimpleChild
 				{
 					Name = "Child2",
 					LazyProp = "LazyFromSimpleChild2",
+				};
+
+				var child3 = new EntitySimpleChild
+				{
+					Name = "Child3",
+					OrderIdx = 0
+				};
+				var child4 = new EntitySimpleChild
+				{
+					Name = "Child4",
+					OrderIdx = 50
 				};
 
 				var parent = new EntityComplex
@@ -701,7 +756,7 @@ namespace NHibernate.Test.Criteria.SelectModeTest
 					{
 						Name = "ComplexEntityChild"
 					},
-					ChildrenList = new List<EntitySimpleChild> {child1},
+					ChildrenList = new List<EntitySimpleChild> {child3, child1, child4 },
 					ChildrenListEmpty = new List<EntityComplex> { },
 				};
 				session.Save(new EntityEager()

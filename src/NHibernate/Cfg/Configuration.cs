@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -48,7 +47,7 @@ namespace NHibernate.Cfg
 	/// </para>
 	/// </remarks>
 	[Serializable]
-	public class Configuration : ISerializable
+	public partial class Configuration : ISerializable
 	{
 		/// <summary>Default name for hibernate configuration file.</summary>
 		public const string DefaultHibernateCfgFileName = "hibernate.cfg.xml";
@@ -172,7 +171,9 @@ namespace NHibernate.Cfg
 			propertyReferences = new List<Mappings.PropertyReference>();
 			FilterDefinitions = new Dictionary<string, FilterDefinition>();
 			interceptor = EmptyInterceptor.Instance;
+#pragma warning disable 618
 			properties = Environment.Properties;
+#pragma warning restore 618
 			auxiliaryDatabaseObjects = new List<IAuxiliaryDatabaseObject>();
 			SqlFunctions = new Dictionary<string, ISQLFunction>();
 			mappingsQueue = new MappingsQueue();
@@ -222,7 +223,7 @@ namespace NHibernate.Cfg
 			public IType GetReferencedPropertyType(string className, string propertyName)
 			{
 				PersistentClass pc = GetPersistentClass(className);
-				Property prop = pc.GetProperty(propertyName);
+				Property prop = pc.GetReferencedProperty(propertyName);
 
 				if (prop == null)
 				{
@@ -238,6 +239,40 @@ namespace NHibernate.Cfg
 
 			public Dialect.Dialect Dialect =>
 				NHibernate.Dialect.Dialect.GetDialect(configuration.Properties);
+		}
+
+		[Serializable]
+		private class StaticDialectMappingWrapper : IMapping
+		{
+			private readonly IMapping _mapping;
+
+			public StaticDialectMappingWrapper(IMapping mapping)
+			{
+				_mapping = mapping;
+				Dialect = mapping.Dialect;
+			}
+
+			public IType GetIdentifierType(string className)
+			{
+				return _mapping.GetIdentifierType(className);
+			}
+
+			public string GetIdentifierPropertyName(string className)
+			{
+				return _mapping.GetIdentifierPropertyName(className);
+			}
+
+			public IType GetReferencedPropertyType(string className, string propertyName)
+			{
+				return _mapping.GetReferencedPropertyType(className, propertyName);
+			}
+
+			public bool HasNonIdentifierPropertyNamedId(string className)
+			{
+				return _mapping.HasNonIdentifierPropertyNamedId(className);
+			}
+
+			public Dialect.Dialect Dialect { get; }
 		}
 
 		private IMapping mapping;
@@ -783,7 +818,7 @@ namespace NHibernate.Cfg
 			return this;
 		}
 
-		private static IList<string> GetAllHbmXmlResourceNames(Assembly assembly)
+		private static List<string> GetAllHbmXmlResourceNames(Assembly assembly)
 		{
 			var result = new List<string>();
 
@@ -852,7 +887,7 @@ namespace NHibernate.Cfg
 					{
 						foreach (var fk in table.ForeignKeyIterator)
 						{
-							if (fk.HasPhysicalConstraint && IncludeAction(fk.ReferencedTable.SchemaActions, SchemaAction.Drop))
+							if (fk.IsGenerated(dialect) && IncludeAction(fk.ReferencedTable.SchemaActions, SchemaAction.Drop))
 							{
 								script.Add(fk.SqlDropString(dialect, defaultCatalog, defaultSchema));
 							}
@@ -940,7 +975,7 @@ namespace NHibernate.Cfg
 					{
 						foreach (var fk in table.ForeignKeyIterator)
 						{
-							if (fk.HasPhysicalConstraint && IncludeAction(fk.ReferencedTable.SchemaActions, SchemaAction.Export))
+							if (fk.IsGenerated(dialect) && IncludeAction(fk.ReferencedTable.SchemaActions, SchemaAction.Export))
 							{
 								script.Add(fk.SqlCreateString(dialect, mapping, defaultCatalog, defaultSchema));
 							}
@@ -1191,6 +1226,13 @@ namespace NHibernate.Cfg
 						try
 						{
 							fk.AddReferencedTable(referencedClass);
+
+							if (string.IsNullOrEmpty(fk.Name))
+							{
+								fk.Name = Constraint.GenerateName(
+									fk.GeneratedConstraintNamePrefix, table, fk.ReferencedTable, fk.Columns);
+							}
+
 							fk.AlignColumns();
 						}
 						catch (MappingException me)
@@ -1248,6 +1290,7 @@ namespace NHibernate.Cfg
 
 			#endregion
 		}
+
 		/// <summary>
 		/// Instantiate a new <see cref="ISessionFactory" />, using the properties and mappings in this
 		/// configuration. The <see cref="ISessionFactory" /> will be immutable, so changes made to the
@@ -1256,17 +1299,33 @@ namespace NHibernate.Cfg
 		/// <returns>An <see cref="ISessionFactory" /> instance.</returns>
 		public ISessionFactory BuildSessionFactory()
 		{
+			var dynamicDialectMapping = mapping;
+			// Use a mapping which does store the dialect instead of instantiating a new one
+			// at each access. The dialect does not change while building a session factory.
+			// It furthermore allows some hack on NHibernate.Spatial side to go on working,
+			// See nhibernate/NHibernate.Spatial#104
+			mapping = new StaticDialectMappingWrapper(mapping);
+			try
+			{
+				ConfigureProxyFactoryFactory();
+				SecondPassCompile();
+				Validate();
+				Environment.VerifyProperties(properties);
+				Settings settings = BuildSettings();
 
-			ConfigureProxyFactoryFactory();
-			SecondPassCompile();
-			Validate();
-			Environment.VerifyProperties(properties);
-			Settings settings = BuildSettings();
+				// Ok, don't need schemas anymore, so free them
+				Schemas = null;
 
-			// Ok, don't need schemas anymore, so free them
-			Schemas = null;
-
-			return new SessionFactoryImpl(this, mapping, settings, GetInitializedEventListeners());
+				return new SessionFactoryImpl(
+					this,
+					mapping,
+					settings,
+					GetInitializedEventListeners());
+			}
+			finally
+			{
+				mapping = dynamicDialectMapping;
+			}
 		}
 
 		/// <summary>
@@ -2338,7 +2397,7 @@ namespace NHibernate.Cfg
 					{
 						foreach (var fk in table.ForeignKeyIterator)
 						{
-							if (fk.HasPhysicalConstraint && IncludeAction(fk.ReferencedTable.SchemaActions, SchemaAction.Update))
+							if (fk.IsGenerated(dialect) && IncludeAction(fk.ReferencedTable.SchemaActions, SchemaAction.Update))
 							{
 								bool create = tableInfo == null
 											  ||

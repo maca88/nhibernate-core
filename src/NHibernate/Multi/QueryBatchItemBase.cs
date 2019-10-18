@@ -6,6 +6,7 @@ using System.Linq;
 using NHibernate.Cache;
 using NHibernate.Engine;
 using NHibernate.SqlCommand;
+using NHibernate.Type;
 using NHibernate.Util;
 
 namespace NHibernate.Multi
@@ -13,156 +14,270 @@ namespace NHibernate.Multi
 	/// <summary>
 	/// Base class for both ICriteria and IQuery queries
 	/// </summary>
-	public abstract partial class QueryBatchItemBase<TResult> : IQueryBatchItem<TResult>
+	public abstract partial class QueryBatchItemBase<TResult> : IQueryBatchItem<TResult>, IQueryBatchItemWithAsyncProcessResults
 	{
 		protected ISessionImplementor Session;
 		private List<EntityKey[]>[] _subselectResultKeys;
-		private IList[] _loaderResults;
-
-		private List<QueryLoadInfo> _queryInfos;
+		private List<QueryInfo> _queryInfos;
+		private CacheMode? _cacheMode;
 		private IList<TResult> _finalResults;
+		private DbDataReader _reader;
+		private List<object>[] _hydratedObjects;
 
-		protected class QueryLoadInfo
+		protected class QueryInfo : ICachingInformation, ICachingInformationWithFetches
 		{
-			public Loader.Loader Loader;
-			public QueryParameters Parameters;
-			
+			/// <summary>
+			/// The query loader.
+			/// </summary>
+			public Loader.Loader Loader { get; set; }
+
+			/// <summary>
+			/// The query result.
+			/// </summary>
+			public IList Result { get; set; }
+
+			/// <inheritdoc />
+			public QueryParameters Parameters { get; }
+
+			/// <inheritdoc />
+			public ISet<string> QuerySpaces { get; }
+
 			//Cache related properties:
-			public ISet<string> QuerySpaces;
-			public IQueryCache Cache;
-			public QueryKey CacheKey;
+
+			/// <inheritdoc />
+			public bool IsCacheable { get; }
+
+			/// <inheritdoc />
+			public QueryKey CacheKey { get;}
+
+			/// <inheritdoc />
+			public bool CanGetFromCache { get; }
+
+			// Do not store but forward instead: Loader.ResultTypes can be null initially (if AutoDiscoverTypes
+			// is enabled).
+			/// <inheritdoc />
+			public IType[] ResultTypes => Loader.ResultTypes;
+
+			/// <inheritdoc />
+			public IType[] CacheTypes => Loader.CacheTypes;
+
+			/// <inheritdoc />
+			public string QueryIdentifier => Loader.QueryIdentifier;
+
+			/// <inheritdoc />
+			public IList ResultToCache { get; set; }
+
+			/// <summary>
+			/// Indicates if the query result was obtained from the cache.
+			/// </summary>
+			public bool IsResultFromCache { get; private set; }
+
+			/// <summary>
+			/// Should a result retrieved from database be cached?
+			/// </summary>
+			public bool CanPutToCache { get; }
+
+			/// <summary>
+			/// The cache batcher to use for entities and collections puts.
+			/// </summary>
+			public CacheBatcher CacheBatcher { get; private set; }
+
+			/// <summary>
+			/// Create a new <c>QueryInfo</c>.
+			/// </summary>
+			/// <param name="parameters">The query parameters.</param>
+			/// <param name="loader">The loader.</param>
+			/// <param name="querySpaces">The query spaces.</param>
+			/// <param name="session">The session of the query.</param>
+			public QueryInfo(
+				QueryParameters parameters, Loader.Loader loader, ISet<string> querySpaces,
+				ISessionImplementor session)
+			{
+				Parameters = parameters;
+				Loader = loader;
+				QuerySpaces = querySpaces;
+
+				IsCacheable = loader.IsCacheable(parameters);
+				if (!IsCacheable)
+					return;
+
+				CacheKey = Loader.GenerateQueryKey(session, Parameters);
+				CanGetFromCache = Parameters.CanGetFromCache(session);
+				CanPutToCache = Parameters.CanPutToCache(session);
+			}
+
+			/// <inheritdoc />
+			public void SetCachedResult(IList result)
+			{
+				if (!IsCacheable)
+					throw new InvalidOperationException("Cannot set cached result on a non cacheable query");
+				if (Result != null)
+					throw new InvalidOperationException("Result is already set");
+				Result = result;
+				IsResultFromCache = result != null;
+			}
+
+			/// <inheritdoc />
+			public void SetCacheBatcher(CacheBatcher cacheBatcher)
+			{
+				CacheBatcher = cacheBatcher;
+			}
 		}
 
-		protected abstract List<QueryLoadInfo> GetQueryLoadInfo();
+		protected abstract List<QueryInfo> GetQueryInformation(ISessionImplementor session);
 
+		/// <inheritdoc />
+		public IEnumerable<ICachingInformation> CachingInformation
+		{
+			get
+			{
+				ThrowIfNotInitialized();
+				return _queryInfos;
+			}
+		}
+
+		/// <inheritdoc />
 		public virtual void Init(ISessionImplementor session)
 		{
 			Session = session;
 
-			_queryInfos = GetQueryLoadInfo();
+			_queryInfos = GetQueryInformation(session);
+			// Cache and readonly parameters are the same for all translators
+			_cacheMode = _queryInfos.First().Parameters.CacheMode;
 
 			var count = _queryInfos.Count;
 			_subselectResultKeys = new List<EntityKey[]>[count];
-			_loaderResults = new IList[count];
 
 			_finalResults = null;
 		}
 
-		/// <summary>
-		/// Gets the commands to execute for getting the not-already cached results of this query. Does retrieves
-		/// already cached results by side-effect.
-		/// </summary>
-		/// <returns>The commands for obtaining the results not already cached.</returns>
+		/// <inheritdoc />
+		public IEnumerable<string> GetQuerySpaces()
+		{
+			return _queryInfos.SelectMany(q => q.QuerySpaces);
+		}
+
+		/// <inheritdoc />
 		public IEnumerable<ISqlCommand> GetCommands()
 		{
-			for (var index = 0; index < _queryInfos.Count; index++)
+			ThrowIfNotInitialized();
+
+			foreach (var qi in _queryInfos)
 			{
-				var qi = _queryInfos[index];
-
-				if (qi.Loader.IsCacheable(qi.Parameters))
-				{
-					// Check if the results are available in the cache
-					qi.Cache = Session.Factory.GetQueryCache(qi.Parameters.CacheRegion);
-					qi.CacheKey = qi.Loader.GenerateQueryKey(Session, qi.Parameters);
-					var resultsFromCache = qi.Loader.GetResultFromQueryCache(Session, qi.Parameters, qi.QuerySpaces, qi.Cache, qi.CacheKey);
-
-					if (resultsFromCache != null)
-					{
-						// Cached results available, skip the command for them and stores them.
-						qi.Cache = null;
-						_loaderResults[index] = resultsFromCache;
-						continue;
-					}
-				}
+				if (qi.IsResultFromCache)
+					continue;
 
 				yield return qi.Loader.CreateSqlCommand(qi.Parameters, Session);
 			}
 		}
 
-		public IEnumerable<Func<DbDataReader, int>> GetResultSetHandler()
+		/// <inheritdoc />
+		public int ProcessResultsSet(DbDataReader reader)
 		{
+			ThrowIfNotInitialized();
+
 			var dialect = Session.Factory.Dialect;
-			List<object>[] hydratedObjects = new List<object>[_queryInfos.Count];
+			var hydratedObjects = new List<object>[_queryInfos.Count];
 
-			for (var i = 0; i < _queryInfos.Count; i++)
+			using (Session.SwitchCacheMode(_cacheMode))
 			{
-				Loader.Loader loader = _queryInfos[i].Loader;
-				var queryParameters = _queryInfos[i].Parameters;
-
-				//Skip processing for items already loaded from cache
-				if (_queryInfos[i].CacheKey?.ResultTransformer != null && _loaderResults[i] != null)
+				var rowCount = 0;
+				for (var i = 0; i < _queryInfos.Count; i++)
 				{
-					_loaderResults[i] = loader.TransformCacheableResults(queryParameters, _queryInfos[i].CacheKey.ResultTransformer, _loaderResults[i]);
-					continue;
-				}
+					var queryInfo = _queryInfos[i];
+					var loader = queryInfo.Loader;
+					var queryParameters = queryInfo.Parameters;
 
-				int entitySpan = loader.EntityPersisters.Length;
-				hydratedObjects[i] = entitySpan == 0 ? null : new List<object>(entitySpan);
-				EntityKey[] keys = new EntityKey[entitySpan];
+					//Skip processing for items already loaded from cache
+					if (queryInfo.IsResultFromCache)
+					{
+						continue;
+					}
 
-				RowSelection selection = queryParameters.RowSelection;
-				bool createSubselects = loader.IsSubselectLoadingEnabled;
+					var entitySpan = loader.EntityPersisters.Length;
+					hydratedObjects[i] = entitySpan == 0 ? null : new List<object>(entitySpan);
+					var keys = new EntityKey[entitySpan];
 
-				_subselectResultKeys[i] = createSubselects ? new List<EntityKey[]>() : null;
-				int maxRows = Loader.Loader.HasMaxRows(selection) ? selection.MaxRows : int.MaxValue;
-				bool advanceSelection = !dialect.SupportsLimitOffset || !loader.UseLimit(selection, dialect);
+					var selection = queryParameters.RowSelection;
+					var createSubselects = loader.IsSubselectLoadingEnabled;
 
-				var index = i;
-				yield return reader =>
-				{
+					_subselectResultKeys[i] = createSubselects ? new List<EntityKey[]>() : null;
+					var maxRows = Loader.Loader.HasMaxRows(selection) ? selection.MaxRows : int.MaxValue;
+					var advanceSelection = !dialect.SupportsLimitOffset || !loader.UseLimit(selection, dialect);
+
 					if (advanceSelection)
 					{
 						Loader.Loader.Advance(reader, selection);
 					}
+
+					var forcedResultTransformer = queryInfo.CacheKey?.ResultTransformer;
 					if (queryParameters.HasAutoDiscoverScalarTypes)
 					{
-						loader.AutoDiscoverTypes(reader, queryParameters, null);
+						loader.AutoDiscoverTypes(reader, queryParameters, forcedResultTransformer);
 					}
 
-					LockMode[] lockModeArray = loader.GetLockModes(queryParameters.LockModes);
-					EntityKey optionalObjectKey = Loader.Loader.GetOptionalObjectKey(queryParameters, Session);
-					int rowCount = 0;
+					var lockModeArray = loader.GetLockModes(queryParameters.LockModes);
+					var optionalObjectKey = Loader.Loader.GetOptionalObjectKey(queryParameters, Session);
 					var tmpResults = new List<object>();
+					var queryCacheBuilder = new QueryCacheResultBuilder(loader);
+					var cacheBatcher = queryInfo.CacheBatcher;
+					var ownCacheBatcher = cacheBatcher == null;
+					if (ownCacheBatcher)
+						cacheBatcher = new CacheBatcher(Session);
 
-					int count;
-					for (count = 0; count < maxRows && reader.Read(); count++)
+					for (var count = 0; count < maxRows && reader.Read(); count++)
 					{
 						rowCount++;
 
-						object o =
+						var o =
 							loader.GetRowFromResultSet(
 								reader,
 								Session,
 								queryParameters,
 								lockModeArray,
 								optionalObjectKey,
-								hydratedObjects[index],
+								hydratedObjects[i],
 								keys,
 								true,
-								_queryInfos[index].CacheKey?.ResultTransformer
+								forcedResultTransformer,
+								queryCacheBuilder,
+								(persister, data) => cacheBatcher.AddToBatch(persister, data)
 							);
 						if (loader.IsSubselectLoadingEnabled)
 						{
-							_subselectResultKeys[index].Add(keys);
+							_subselectResultKeys[i].Add(keys);
 							keys = new EntityKey[entitySpan]; //can't reuse in this case
 						}
 
 						tmpResults.Add(o);
 					}
-					_loaderResults[index] = tmpResults;
 
-					if (index == _queryInfos.Count - 1)
-					{
-						InitializeEntitiesAndCollections(reader, hydratedObjects);
-					}
-					return rowCount;
-				};
+					queryInfo.Result = tmpResults;
+					if (queryInfo.CanPutToCache)
+						queryInfo.ResultToCache = queryCacheBuilder.Result;
+
+					if (ownCacheBatcher)
+						cacheBatcher.ExecuteBatch();
+
+					reader.NextResult();
+				}
+
+				StopLoadingCollections(reader);
+				_reader = reader;
+				_hydratedObjects = hydratedObjects;
+				return rowCount;
 			}
 		}
 
+		/// <inheritdoc cref="IQueryBatchItem.ProcessResults" />
 		public void ProcessResults()
 		{
-			for (int i = 0; i < _queryInfos.Count; i++)
+			ThrowIfNotInitialized();
+
+			using (Session.SwitchCacheMode(_cacheMode))
+				InitializeEntitiesAndCollections(_reader, _hydratedObjects);
+
+			for (var i = 0; i < _queryInfos.Count; i++)
 			{
 				var queryInfo = _queryInfos[i];
 				if (_subselectResultKeys[i] != null)
@@ -170,62 +285,94 @@ namespace NHibernate.Multi
 					queryInfo.Loader.CreateSubselects(_subselectResultKeys[i], queryInfo.Parameters, Session);
 				}
 
-				// Handle cache if cacheable.
-				if (queryInfo.Cache != null)
+				if (queryInfo.IsCacheable)
 				{
-					queryInfo.Loader.PutResultInQueryCache(Session, queryInfo.Parameters, queryInfo.Cache, queryInfo.CacheKey, _loaderResults[i]);
+					if (queryInfo.IsResultFromCache)
+					{
+						var queryCacheBuilder = new QueryCacheResultBuilder(queryInfo.Loader);
+						queryInfo.Result = queryCacheBuilder.GetResultList(queryInfo.Result);
+					}
+
+					// This transformation must not be applied to ResultToCache.
+					queryInfo.Result =
+						queryInfo.Loader.TransformCacheableResults(
+							queryInfo.Parameters, queryInfo.CacheKey.ResultTransformer, queryInfo.Result);
 				}
 			}
 			AfterLoadCallback?.Invoke(GetResults());
 		}
 
+		/// <inheritdoc />
 		public void ExecuteNonBatched()
 		{
 			_finalResults = GetResultsNonBatched();
 			AfterLoadCallback?.Invoke(_finalResults);
 		}
 
-		public IEnumerable<string> GetQuerySpaces()
-		{
-			return _queryInfos.SelectMany(q => q.QuerySpaces);
-		}
-
 		protected abstract IList<TResult> GetResultsNonBatched();
 
 		protected List<T> GetTypedResults<T>()
 		{
-			if (_loaderResults == null)
+			ThrowIfNotInitialized();
+			if (_queryInfos.Any(qi => qi.Result == null))
 			{
-				throw new HibernateException("Batch wasn't executed. You must call IQueryBatch.Execute() before accessing results.");
+				throw new InvalidOperationException("Some query results are missing, batch is likely not fully executed yet.");
 			}
-			List<T> results = new List<T>(_loaderResults.Sum(tr => tr.Count));
-			for (int i = 0; i < _queryInfos.Count; i++)
+			var results = new List<T>(_queryInfos.Sum(qi => qi.Result.Count));
+			foreach (var queryInfo in _queryInfos)
 			{
-				var list = _queryInfos[i].Loader.GetResultList(
-					_loaderResults[i],
-					_queryInfos[i].Parameters.ResultTransformer);
+				var list = queryInfo.Loader.GetResultList(
+					queryInfo.Result,
+					queryInfo.Parameters.ResultTransformer);
 				ArrayHelper.AddAll(results, list);
 			}
 
 			return results;
 		}
 
+		/// <inheritdoc />
 		public IList<TResult> GetResults()
 		{
 			return _finalResults ?? (_finalResults = DoGetResults());
 		}
 
+		/// <inheritdoc />
 		public Action<IList<TResult>> AfterLoadCallback { get; set; }
 
 		protected abstract List<TResult> DoGetResults();
 
 		private void InitializeEntitiesAndCollections(DbDataReader reader, List<object>[] hydratedObjects)
 		{
-			for (int i = 0; i < _queryInfos.Count; i++)
+			for (var i = 0; i < _queryInfos.Count; i++)
 			{
-				_queryInfos[i].Loader.InitializeEntitiesAndCollections(
-									hydratedObjects[i], reader, Session, Session.PersistenceContext.DefaultReadOnly);
+				var queryInfo = _queryInfos[i];
+				if (queryInfo.IsResultFromCache)
+					continue;
+				queryInfo.Loader.InitializeEntitiesAndCollections(
+					hydratedObjects[i], reader, Session, queryInfo.Parameters.IsReadOnly(Session),
+					queryInfo.CacheBatcher);
 			}
+		}
+
+		private void StopLoadingCollections(DbDataReader reader)
+		{
+			for (var i = 0; i < _queryInfos.Count; i++)
+			{
+				var queryInfo = _queryInfos[i];
+				if (queryInfo.IsResultFromCache)
+					continue;
+				queryInfo.Loader.StopLoadingCollections(Session, reader);
+			}
+		}
+
+		private void ThrowIfNotInitialized()
+		{
+			if (_queryInfos == null)
+				throw new InvalidOperationException(
+					"The query item has not been initialized. A query item must belong to a batch " +
+					$"({nameof(IQueryBatch)}) and the batch must be executed ({nameof(IQueryBatch)}." +
+					$"{nameof(IQueryBatch.Execute)} or {nameof(IQueryBatch)}.{nameof(IQueryBatch.GetResult)}) " +
+					"before retrieving the item result.");
 		}
 	}
 }

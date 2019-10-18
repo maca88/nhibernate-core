@@ -158,10 +158,9 @@ namespace NHibernate.SqlCommand
 		/// </summary>
 		/// <param name="sqlString">The SqlString to add to this SqlStringBuilder</param>
 		/// <returns>This SqlStringBuilder</returns>
-		/// <remarks>This calls the overloaded Add(sqlString, null, null, null, false)</remarks>
 		public SqlStringBuilder Add(SqlString sqlString)
 		{
-			sqlString.Visit(AddingVisitor);
+			sqlString?.Visit(AddingVisitor);
 			return this;
 		}
 
@@ -217,7 +216,7 @@ namespace NHibernate.SqlCommand
 
 			foreach (SqlString sqlString in sqlStrings)
 			{
-				if (sqlString.Count == 0)
+				if (sqlString == null || sqlString.Count == 0)
 				{
 					continue;
 				}
@@ -313,7 +312,7 @@ namespace NHibernate.SqlCommand
 		/// <returns>The SqlString that was built.</returns>
 		public SqlString ToSqlString()
 		{
-			return new SqlString(sqlParts.ToArray());
+			return new SqlString(sqlParts);
 		}
 
 		public override string ToString()

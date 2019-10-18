@@ -16,11 +16,13 @@ using NHibernate.Util;
 
 namespace NHibernate.Impl
 {
+	// Since v5.2
+	[Obsolete("Use Multi.IQueryBatch instead, obtainable with ISession.CreateQueryBatch.")]
 	public partial class MultiCriteriaImpl : IMultiCriteria
 	{
 		private static readonly INHibernateLogger log = NHibernateLogger.For(typeof(MultiCriteriaImpl));
-		private readonly IList<ICriteria> criteriaQueries = new List<ICriteria>();
-		private readonly IList<System.Type> resultCollectionGenericType = new List<System.Type>();
+		private readonly List<ICriteria> criteriaQueries = new List<ICriteria>();
+		private readonly List<System.Type> resultCollectionGenericType = new List<System.Type>();
 
 		private readonly SessionImpl session;
 		private readonly ISessionFactoryImplementor factory;
@@ -144,7 +146,7 @@ namespace NHibernate.Impl
 				result = list;
 				if (session.CacheMode.HasFlag(CacheMode.Put))
 				{
-					bool put = queryCache.Put(key, new ICacheAssembler[] { assembler }, new object[] { list }, combinedParameters.NaturalKeyLookup, session);
+					bool put = queryCache.Put(key, combinedParameters, new ICacheAssembler[] { assembler }, new object[] { list }, session);
 					if (put && factory.Statistics.IsStatisticsEnabled)
 					{
 						factory.StatisticsImplementor.QueryCachePut(key.ToString(), queryCache.RegionName);
@@ -216,13 +218,13 @@ namespace NHibernate.Impl
 
 		private void GetResultsFromDatabase(IList results)
 		{
-			bool statsEnabled = session.Factory.Statistics.IsStatisticsEnabled;
-			var stopWatch = new Stopwatch();
-			if (statsEnabled)
+			Stopwatch stopWatch = null;
+			if (session.Factory.Statistics.IsStatisticsEnabled)
 			{
-				stopWatch.Start();
+				stopWatch = Stopwatch.StartNew();
 			}
 			int rowCount = 0;
+			var cacheBatcher = new CacheBatcher(session);
 
 			try
 			{
@@ -255,7 +257,8 @@ namespace NHibernate.Impl
 
 							object o =
 								loader.GetRowFromResultSet(reader, session, queryParameters, loader.GetLockModes(queryParameters.LockModes),
-																					 null, hydratedObjects[i], keys, true);
+								                           null, hydratedObjects[i], keys, true, null, null,
+								                           (persister, data) => cacheBatcher.AddToBatch(persister, data));
 							if (createSubselects[i])
 							{
 								subselectResultKeys[i].Add(keys);
@@ -271,13 +274,15 @@ namespace NHibernate.Impl
 					for (int i = 0; i < loaders.Count; i++)
 					{
 						CriteriaLoader loader = loaders[i];
-						loader.InitializeEntitiesAndCollections(hydratedObjects[i], reader, session, session.DefaultReadOnly);
+						loader.InitializeEntitiesAndCollections(hydratedObjects[i], reader, session, session.DefaultReadOnly, cacheBatcher);
 
 						if (createSubselects[i])
 						{
 							loader.CreateSubselects(subselectResultKeys[i], parameters[i], session);
 						}
 					}
+
+					cacheBatcher.ExecuteBatch();
 				}
 			}
 			catch (Exception sqle)
@@ -285,7 +290,7 @@ namespace NHibernate.Impl
 				log.Error(sqle, "Failed to execute multi criteria: [{0}]", resultSetsCommand.Sql);
 				throw ADOExceptionHelper.Convert(session.Factory.SQLExceptionConverter, sqle, "Failed to execute multi criteria", resultSetsCommand.Sql);
 			}
-			if (statsEnabled)
+			if (stopWatch != null)
 			{
 				stopWatch.Stop();
 				session.Factory.StatisticsImplementor.QueryExecuted(string.Format("{0} queries (MultiCriteria)", loaders.Count), rowCount, stopWatch.Elapsed);

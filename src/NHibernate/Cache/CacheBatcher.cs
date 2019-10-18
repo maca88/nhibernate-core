@@ -1,8 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
-using NHibernate.Cache.Access;
+using System.Linq;
 using NHibernate.Engine;
 using NHibernate.Persister.Collection;
 using NHibernate.Persister.Entity;
@@ -10,72 +8,66 @@ using NHibernate.Persister.Entity;
 namespace NHibernate.Cache
 {
 	/// <summary>
-	/// A batcher for batching operations of <see cref="ICacheConcurrencyStrategy"/>, where the batch size is retrived
-	/// from an <see cref="IEntityPersister"/> or <see cref="ICollectionPersister"/>.
-	/// When a different persister or a different operation is added to the batch, the current batch will be executed.
+	/// A batcher for batching operations of <see cref="ICacheConcurrencyStrategy"/>.
 	/// </summary>
-	internal partial class CacheBatcher
+	public sealed partial class CacheBatcher
 	{
-		private CachePutBatch _putBatch;
-		private ISessionImplementor _session;
-		private AbstractCacheBatch _currentBatch;
-		private object _currentPersister;
+		private readonly Dictionary<ICacheConcurrencyStrategy, CachePutBatch> _putBatches =
+			new Dictionary<ICacheConcurrencyStrategy, CachePutBatch>();
+		private readonly ISessionImplementor _session;
 
-		protected static readonly INHibernateLogger Log = NHibernateLogger.For(typeof(CacheBatcher));
+		private static readonly INHibernateLogger Log = NHibernateLogger.For(typeof(CacheBatcher));
 
-		public CacheBatcher(ISessionImplementor session)
+		internal CacheBatcher(ISessionImplementor session)
 		{
 			_session = session;
 		}
 
 		/// <summary>
-		/// Adds a put operation to the batch. If the batch size reached the persister batch
-		/// size, the batch will be executed.
+		/// Adds a put operation to the batch.
 		/// </summary>
 		/// <param name="persister">The entity persister.</param>
 		/// <param name="data">The data to put in the cache.</param>
-		public void AddToBatch(IEntityPersister persister, CachePutData data)
+		internal void AddToBatch(IEntityPersister persister, CachePutData data)
 		{
-			if (ShouldExecuteBatch(persister, _putBatch))
-			{
-				ExecuteBatch();
-				_currentPersister = persister;
-				_currentBatch = _putBatch = new CachePutBatch(_session, persister.Cache);
-			}
 			if (Log.IsDebugEnabled())
 			{
 				Log.Debug("Adding a put operation to batch for entity {0} and key {1}", persister.EntityName, data.Key);
 			}
-			_putBatch.Add(data);
+			AddToBatch(persister.Cache, data);
 		}
 
 		/// <summary>
-		/// Adds a put operation to the batch. If the batch size reached the persister batch
-		/// size, the batch will be executed.
+		/// Adds a put operation to the batch.
 		/// </summary>
 		/// <param name="persister">The collection persister.</param>
 		/// <param name="data">The data to put in the cache.</param>
-		public void AddToBatch(ICollectionPersister persister, CachePutData data)
+		internal void AddToBatch(ICollectionPersister persister, CachePutData data)
 		{
-			if (ShouldExecuteBatch(persister, _putBatch))
-			{
-				ExecuteBatch();
-				_currentPersister = persister;
-				_currentBatch = _putBatch = new CachePutBatch(_session, persister.Cache);
-			}
 			if (Log.IsDebugEnabled())
 			{
 				Log.Debug("Adding a put operation to batch for collection role {0} and key {1}", persister.Role, data.Key);
 			}
-			_putBatch.Add(data);
+			AddToBatch(persister.Cache, data);
+		}
+
+		private void AddToBatch(ICacheConcurrencyStrategy cache, CachePutData data)
+		{
+			if (!_putBatches.TryGetValue(cache, out var cachePutBatch))
+			{
+				cachePutBatch = new CachePutBatch(_session, cache);
+				_putBatches.Add(cache, cachePutBatch);
+			}
+
+			cachePutBatch.Add(data);
 		}
 
 		/// <summary>
-		/// Executes the current batch.
+		/// Executes the pending batches.
 		/// </summary>
-		public void ExecuteBatch()
+		internal void ExecuteBatch()
 		{
-			if (_currentBatch == null || _currentBatch.BatchSize == 0)
+			if (_putBatches.Count == 0)
 			{
 				return;
 			}
@@ -87,10 +79,18 @@ namespace NHibernate.Cache
 				{
 					duration = Stopwatch.StartNew();
 				}
-				_currentBatch.Execute();
+
+				foreach (var batch in _putBatches.Values)
+				{
+					batch.Execute();
+				}
+
 				if (Log.IsDebugEnabled() && duration != null)
 				{
-					Log.Debug("ExecuteBatch for {0} keys took {1} ms", _currentBatch.BatchSize, duration.ElapsedMilliseconds);
+					Log.Debug(
+						"ExecuteBatch for {0} batches totaling {1} keys took {2} ms",
+						_putBatches.Count, _putBatches.Values.Sum(b => b.BatchSize),
+						duration.ElapsedMilliseconds);
 				}
 			}
 			finally
@@ -102,24 +102,9 @@ namespace NHibernate.Cache
 		/// <summary>
 		/// Cleans up the current batch.
 		/// </summary>
-		public void Cleanup()
+		internal void Cleanup()
 		{
-			_putBatch = null;
-
-			_currentBatch = null;
-			_currentPersister = null;
-		}
-
-		private bool ShouldExecuteBatch(IEntityPersister persister, AbstractCacheBatch batch)
-		{
-			return batch != _currentBatch || _currentPersister != persister ||
-				   _currentBatch.BatchSize >= persister.GetBatchSize();
-		}
-
-		private bool ShouldExecuteBatch(ICollectionPersister persister, AbstractCacheBatch batch)
-		{
-			return batch != _currentBatch || _currentPersister != persister ||
-				   _currentBatch.BatchSize >= persister.GetBatchSize();
+			_putBatches.Clear();
 		}
 	}
 }

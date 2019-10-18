@@ -39,8 +39,9 @@ namespace NHibernate.Persister.Collection
 {
 	using System.Threading.Tasks;
 	using System.Threading;
+
 	public abstract partial class AbstractCollectionPersister : ICollectionMetadata, ISqlLoadableCollection,
-		IPostInsertIdentityPersister, ISupportSelectModeJoinable
+		IPostInsertIdentityPersister, ISupportSelectModeJoinable, ICompositeKeyPostInsertIdentityPersister
 	{
 
 		public Task InitializeAsync(object key, ISessionImplementor session, CancellationToken cancellationToken)
@@ -555,6 +556,21 @@ namespace NHibernate.Persister.Collection
 
 		#region NH specific
 
+		#region IPostInsertIdentityPersister Members
+
+		public Task BindSelectByUniqueKeyAsync(
+			ISessionImplementor session,
+			DbCommand selectCommand,
+			IBinder binder,
+			string[] suppliedPropertyNames, CancellationToken cancellationToken)
+		{
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromCanceled<object>(cancellationToken);
+			}
+			return binder.BindValuesAsync(selectCommand, cancellationToken);
+		}
+		#endregion
 
 		/// <summary>
 		/// Perform an SQL INSERT, and then retrieve a generated identifier.
@@ -570,15 +586,8 @@ namespace NHibernate.Persister.Collection
 			{
 				return Task.FromCanceled<object>(cancellationToken);
 			}
-			try
-			{
-				IBinder binder = new GeneratedIdentifierBinder(ownerId, collection, entry, index, session, this);
-				return identityDelegate.PerformInsertAsync(SqlInsertRowString, session, binder, cancellationToken);
-			}
-			catch (Exception ex)
-			{
-				return Task.FromException<object>(ex);
-			}
+			IBinder binder = new GeneratedIdentifierBinder(ownerId, collection, entry, index, session, this);
+			return identityDelegate.PerformInsertAsync(SqlInsertRowString, session, binder, cancellationToken);
 		}
 
 		protected partial class GeneratedIdentifierBinder : IBinder

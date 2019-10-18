@@ -49,7 +49,7 @@ namespace NHibernate.Loader
 			rhsColumns = JoinHelper.GetRHSColumnNames(joinableType, factory);
 			on = new SqlString(joinableType.GetOnCondition(rhsAlias, factory, enabledFilters));
 			if (SqlStringHelper.IsNotEmpty(withClause))
-				on = on.Append(" and ( ").Append(withClause).Append(" )");
+				on = on.Append(" and ( ", withClause, " )");
 			this.enabledFilters = enabledFilters; // needed later for many-to-many/filter application
 		}
 
@@ -68,20 +68,9 @@ namespace NHibernate.Loader
 			get { return on; }
 		}
 
-		private bool IsOneToOne
+		private bool IsEntityType
 		{
-			get
-			{
-				if (joinableType.IsEntityType)
-				{
-					EntityType etype = (EntityType) joinableType;
-					return etype.IsOneToOne;
-				}
-				else
-				{
-					return false;
-				}
-			}
+			get { return joinableType.IsEntityType; }
 		}
 
 		public IAssociationType JoinableType
@@ -111,7 +100,7 @@ namespace NHibernate.Loader
 
 		public int GetOwner(IList<OuterJoinableAssociation> associations)
 		{
-			if (IsOneToOne || IsCollection)
+			if (IsEntityType || IsCollection)
 			{
 				return GetPosition(lhsAlias, associations);
 			}
@@ -177,7 +166,7 @@ namespace NHibernate.Loader
 			SqlString condition = string.Empty.Equals(manyToManyFilter)
 								? on
 								: SqlStringHelper.IsEmpty(on) ? new SqlString(manyToManyFilter) : 
-									on.Append(" and ").Append(manyToManyFilter);
+									on.Append(" and ", manyToManyFilter);
 
 			outerjoin.AddJoin(joinable.TableName, rhsAlias, lhsColumns, rhsColumns, joinType, condition);
 			outerjoin.AddJoins(joinable.FromJoinFragment(rhsAlias, false, true),

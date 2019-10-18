@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 
 using NHibernate.Cfg;
+using NHibernate.Util;
 
 namespace NHibernate.Cache
 {
@@ -17,24 +18,32 @@ namespace NHibernate.Cache
 	public partial class UpdateTimestampsCache
 	{
 		private static readonly INHibernateLogger log = NHibernateLogger.For(typeof(UpdateTimestampsCache));
-		private ICache updateTimestamps;
-		private readonly IBatchableReadOnlyCache _batchUpdateTimestamps;
-
-		private readonly string regionName = typeof(UpdateTimestampsCache).Name;
+		private readonly CacheBase _updateTimestamps;
 
 		public virtual void Clear()
 		{
-			updateTimestamps.Clear();
+			_updateTimestamps.Clear();
 		}
 
+		// Since v5.3
+		[Obsolete("Please use overload with a CacheBase parameter.")]
 		public UpdateTimestampsCache(Settings settings, IDictionary<string, string> props)
+			: this(
+				CacheFactory.BuildCacheBase(
+					settings.GetFullCacheRegionName(nameof(UpdateTimestampsCache)),
+					settings,
+					props))
 		{
-			string prefix = settings.CacheRegionPrefix;
-			regionName = prefix == null ? regionName : prefix + '.' + regionName;
-			log.Info("starting update timestamps cache at region: {0}", regionName);
-			updateTimestamps = settings.CacheProvider.BuildCache(regionName, props);
-			// ReSharper disable once SuspiciousTypeConversion.Global
-			_batchUpdateTimestamps = updateTimestamps as IBatchableReadOnlyCache;
+		}
+
+		/// <summary>
+		/// Build the update timestamps cache.
+		/// </summary>x
+		/// <param name="cache">The <see cref="ICache" /> to use.</param>
+		public UpdateTimestampsCache(CacheBase cache)
+		{
+			log.Info("starting update timestamps cache at region: {0}", cache.RegionName);
+			_updateTimestamps = cache;
 		}
 
 		//Since v5.1
@@ -49,17 +58,14 @@ namespace NHibernate.Cache
 		public virtual void PreInvalidate(IReadOnlyCollection<string> spaces)
 		{
 			//TODO: to handle concurrent writes correctly, this should return a Lock to the client
-			long ts = updateTimestamps.NextTimestamp() + updateTimestamps.Timeout;
-			foreach (var space in spaces)
-			{
-				updateTimestamps.Put(space, ts);
-			}
+			var ts = _updateTimestamps.NextTimestamp() + _updateTimestamps.Timeout;
+			SetSpacesTimestamp(spaces, ts);
 
 			//TODO: return new Lock(ts);
 		}
 
 		//Since v5.1
-		[Obsolete("Please use PreInvalidate(IReadOnlyCollection<string>) instead.")]
+		[Obsolete("Please use Invalidate(IReadOnlyCollection<string>) instead.")]
 		public void Invalidate(object[] spaces)
 		{
 			//Only for backwards compatibility.
@@ -70,64 +76,96 @@ namespace NHibernate.Cache
 		public virtual void Invalidate(IReadOnlyCollection<string> spaces)
 		{
 			//TODO: to handle concurrent writes correctly, the client should pass in a Lock
-			long ts = updateTimestamps.NextTimestamp();
+			long ts = _updateTimestamps.NextTimestamp();
 			//TODO: if lock.getTimestamp().equals(ts)
-			foreach (var space in spaces)
+			if (log.IsDebugEnabled())
+				log.Debug("Invalidating spaces [{0}]", StringHelper.CollectionToString(spaces));
+			SetSpacesTimestamp(spaces, ts);
+		}
+
+		private void SetSpacesTimestamp(IReadOnlyCollection<string> spaces, long ts)
+		{
+			if (spaces.Count == 0)
+				return;
+
+			var timestamps = new object[spaces.Count];
+			for (var i = 0; i < timestamps.Length; i++)
 			{
-				log.Debug("Invalidating space [{0}]", space);
-				updateTimestamps.Put(space, ts);
+				timestamps[i] = ts;
 			}
+
+			_updateTimestamps.PutMany(spaces.ToArray(), timestamps);
 		}
 
 		[MethodImpl(MethodImplOptions.Synchronized)]
 		public virtual bool IsUpToDate(ISet<string> spaces, long timestamp /* H2.1 has Long here */)
 		{
-			if (_batchUpdateTimestamps != null)
-			{
-				var keys = new object[spaces.Count];
-				var index = 0;
-				foreach (var space in spaces)
-				{
-					keys[index++] = space;
-				}
-				var lastUpdates = _batchUpdateTimestamps.GetMany(keys);
-				foreach (var lastUpdate in lastUpdates)
-				{
-					if (IsOutdated(lastUpdate, timestamp))
-					{
-						return false;
-					}
-				}
+			if (spaces.Count == 0)
 				return true;
-			}
 
-			foreach (string space in spaces)
+			var keys = new object[spaces.Count];
+			var index = 0;
+			foreach (var space in spaces)
 			{
-				object lastUpdate = updateTimestamps.Get(space);
-				if (IsOutdated(lastUpdate, timestamp))
-				{
-					return false;
-				}
-				
+				keys[index++] = space;
 			}
-			return true;
+			var lastUpdates = _updateTimestamps.GetMany(keys);
+			return lastUpdates.All(lastUpdate => !IsOutdated(lastUpdate as long?, timestamp));
 		}
 
+		[MethodImpl(MethodImplOptions.Synchronized)]
+		public virtual bool[] AreUpToDate(ISet<string>[] spaces, long[] timestamps)
+		{
+			var results = new bool[spaces.Length];
+			var allSpaces = new HashSet<string>();
+			foreach (var sp in spaces)
+			{
+				allSpaces.UnionWith(sp);
+			}
+
+			if (allSpaces.Count == 0)
+			{
+				for (var i = 0; i < spaces.Length; i++)
+				{
+					results[i] = true;
+				}
+
+				return results;
+			}
+
+			var keys = new object[allSpaces.Count];
+			var index = 0;
+			foreach (var space in allSpaces)
+			{
+				keys[index++] = space;
+			}
+
+			index = 0;
+			var lastUpdatesBySpace =
+				_updateTimestamps
+					.GetMany(keys)
+					.ToDictionary(u => keys[index++], u => u as long?);
+
+			for (var i = 0; i < spaces.Length; i++)
+			{
+				var timestamp = timestamps[i];
+				results[i] = spaces[i].All(space => !IsOutdated(lastUpdatesBySpace[space], timestamp));
+			}
+
+			return results;
+		}
+
+		// Since v5.3
+		[Obsolete("This method has no usages anymore")]
 		public virtual void Destroy()
 		{
-			try
-			{
-				updateTimestamps.Destroy();
-			}
-			catch (Exception e)
-			{
-				log.Warn(e, "could not destroy UpdateTimestamps cache");
-			}
+			// The cache is externally provided and may be shared. Destroying the cache is
+			// not the responsibility of this class.
 		}
 
-		private bool IsOutdated(object lastUpdate, long timestamp)
+		private bool IsOutdated(long? lastUpdate, long timestamp)
 		{
-			if (lastUpdate == null)
+			if (!lastUpdate.HasValue)
 			{
 				//the last update timestamp was lost from the cache
 				//(or there were no updates since startup!)
@@ -148,7 +186,7 @@ namespace NHibernate.Cache
 			}
 			else
 			{
-				if ((long) lastUpdate >= timestamp)
+				if (lastUpdate >= timestamp)
 				{
 					return true;
 				}

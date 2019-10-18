@@ -123,6 +123,10 @@ namespace NHibernate.Cfg
 		[Obsolete("This setting has no usages and will be removed in a future version")]
 		public const string OutputStylesheet = "xml.output_stylesheet";
 
+		/// <summary>
+		/// The class name of a custom <see cref="Transaction.ITransactionFactory"/> implementation. Defaults to the
+		/// built-in <see cref="Transaction.AdoNetWithSystemTransactionFactory" />.
+		/// </summary>
 		public const string TransactionStrategy = "transaction.factory_class";
 		/// <summary>
 		/// <para>Timeout duration in milliseconds for the system transaction completion lock.</para>
@@ -144,6 +148,14 @@ namespace NHibernate.Cfg
 		/// transaction preparation, while still benefiting from <see cref="FlushMode.Auto"/> on querying.
 		/// </summary>
 		public const string UseConnectionOnSystemTransactionPrepare = "transaction.use_connection_on_system_prepare";
+		/// <summary>
+		/// Should sessions check on every operation whether there is an ongoing system transaction or not, and enlist
+		/// into it if any? Default is <see langword="true"/>. It can also be controlled at session opening, see
+		/// <see cref="ISessionFactory.WithOptions" />. A session can also be instructed to explicitly join the current
+		/// transaction by calling <see cref="ISession.JoinTransaction" />. This setting has no effect when using a
+		/// transaction factory that is not system transactions aware.
+		/// </summary>
+		public const string AutoJoinTransaction = "transaction.auto_join";
 
 		// Since v5.0.1
 		[Obsolete("This setting has no usages and will be removed in a future version")]
@@ -267,6 +279,32 @@ namespace NHibernate.Cfg
 		public const string OracleUseNPrefixedTypesForUnicode = "oracle.use_n_prefixed_types_for_unicode";
 
 		/// <summary>
+		/// <para>
+		/// Firebird with FirebirdSql.Data.FirebirdClient may be unable to determine the type
+		/// of parameters in many circumstances, unless they are explicitly casted in the SQL
+		/// query. To avoid this trouble, the NHibernate <c>FirebirdClientDriver</c> parses SQL
+		/// commands for detecting parameters in them and adding an explicit SQL cast around
+		/// parameters which may trigger the issue.
+		/// </para>
+		/// <para>
+		/// For disabling this behavior, set this setting to true.
+		/// </para>
+		/// </summary>
+		public const string FirebirdDisableParameterCasting = "firebird.disable_parameter_casting";
+
+		/// <summary>
+		/// <para>
+		/// SQLite can store GUIDs in binary or text form, controlled by the BinaryGuid
+		/// connection string parameter (default is 'true'). The BinaryGuid setting will affect
+		/// how to cast GUID to string in SQL. NHibernate will attempt to detect this
+		/// setting automatically from the connection string, but if the connection
+		/// or connection string is being handled by the application instead of by NHibernate,
+		/// you can use the 'sqlite.binaryguid' NHibernate setting to override the behavior.
+		/// </para>
+		/// </summary>
+		public const string SqliteBinaryGuid = "sqlite.binaryguid";
+
+		/// <summary>
 		/// <para>Set whether tracking the session id or not. When <see langword="true"/>, each session 
 		/// will have an unique <see cref="Guid"/> that can be retrieved by <see cref="ISessionImplementor.SessionId"/>,
 		/// otherwise <see cref="ISessionImplementor.SessionId"/> will always be <see cref="Guid.Empty"/>. Session id 
@@ -369,6 +407,8 @@ namespace NHibernate.Cfg
 		/// <remarks>
 		/// This is the replacement for hibernate.properties
 		/// </remarks>
+		//Since v5.3
+		[Obsolete("This property is not used and will be removed in a future version.")]
 		public static IDictionary<string, string> Properties
 		{
 			get { return new Dictionary<string, string>(GlobalProperties); }
@@ -526,5 +566,40 @@ namespace NHibernate.Cfg
 			}
 		}
 
+
+		/// <summary>
+		/// Get a named connection string, if configured.
+		/// </summary>
+		/// <exception cref="HibernateException">
+		/// Thrown when a <see cref="ConnectionStringName"/> was found 
+		/// in the <c>settings</c> parameter but could not be found in the app.config.
+		/// </exception>
+		internal static string GetNamedConnectionString(IDictionary<string, string> settings)
+		{
+			string connStringName;
+			if (!settings.TryGetValue(ConnectionStringName, out connStringName))
+				return null;
+
+			ConnectionStringSettings connectionStringSettings = ConfigurationManager.ConnectionStrings[connStringName];
+			if (connectionStringSettings == null)
+				throw new HibernateException($"Could not find named connection string '{connStringName}'.");
+
+			return connectionStringSettings.ConnectionString;
+		}
+
+
+		/// <summary>
+		/// Get the configured connection string, from <see cref="ConnectionString"/> if that
+		/// is set, otherwise from <see cref="ConnectionStringName"/>, or null if that isn't
+		/// set either.
+		/// </summary>
+		internal static string GetConfiguredConnectionString(IDictionary<string, string> settings)
+		{ 
+			// Connection string in the configuration overrides named connection string.
+			if (!settings.TryGetValue(ConnectionString, out string connString))
+				connString = GetNamedConnectionString(settings);
+
+			return connString;
+		}
 	}
 }

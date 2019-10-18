@@ -22,11 +22,10 @@ namespace NHibernate.Event.Default
 			IPersistentCollection collection = @event.Collection;
 			ISessionImplementor source = @event.Session;
 
-			bool statsEnabled = source.Factory.Statistics.IsStatisticsEnabled;
-			var stopWath = new Stopwatch();
-			if (statsEnabled)
+			Stopwatch stopWatch = null;
+			if (source.Factory.Statistics.IsStatisticsEnabled)
 			{
-				stopWath.Start();
+				stopWatch = Stopwatch.StartNew();
 			}
 
 			CollectionEntry ce = source.PersistenceContext.GetCollectionEntry(collection);
@@ -52,19 +51,20 @@ namespace NHibernate.Event.Default
 					ce.LoadedPersister.Initialize(ce.LoadedKey, source);
 					log.Debug("collection initialized");
 
-					if (statsEnabled)
+					if (stopWatch != null)
 					{
-						stopWath.Stop();
-						source.Factory.StatisticsImplementor.FetchCollection(ce.LoadedPersister.Role, stopWath.Elapsed);
+						stopWatch.Stop();
+						source.Factory.StatisticsImplementor.FetchCollection(ce.LoadedPersister.Role, stopWatch.Elapsed);
 					}
 				}
 			}
 		}
 
 		/// <summary> Try to initialize a collection from the cache</summary>
-		private bool InitializeCollectionFromCache(object id, ICollectionPersister persister, IPersistentCollection collection, ISessionImplementor source)
+		private bool InitializeCollectionFromCache(
+			object collectionKey, ICollectionPersister persister, IPersistentCollection collection,
+			ISessionImplementor source)
 		{
-
 			if (!(source.EnabledFilters.Count == 0) && persister.IsAffectedByEnabledFilters(source))
 			{
 				log.Debug("disregarding cached version (if any) of collection due to enabled filters ");
@@ -79,12 +79,29 @@ namespace NHibernate.Event.Default
 			}
 
 			var batchSize = persister.GetBatchSize();
-			if (batchSize > 1 && persister.Cache.IsBatchingGetSupported())
+			CollectionEntry[] collectionEntries = null;
+			var collectionBatch = source.PersistenceContext.BatchFetchQueue.QueryCacheQueue
+			                            ?.GetCollectionBatch(persister, collectionKey, out collectionEntries);
+			if (collectionBatch != null || batchSize > 1 && persister.Cache.PreferMultipleGet())
 			{
-				var collectionEntries = new CollectionEntry[batchSize];
 				// The first item in the array is the item that we want to load
-				var collectionBatch = source.PersistenceContext.BatchFetchQueue
-				                            .GetCollectionBatch(persister, id, batchSize, false, collectionEntries);
+				if (collectionBatch != null)
+				{
+					if (collectionBatch.Length == 0)
+					{
+						return false; // The key was already checked
+					}
+
+					batchSize = collectionBatch.Length;
+				}
+
+				if (collectionBatch == null)
+				{
+					collectionEntries = new CollectionEntry[batchSize];
+					collectionBatch = source.PersistenceContext.BatchFetchQueue
+					                        .GetCollectionBatch(persister, collectionKey, batchSize, false, collectionEntries);
+				}
+
 				// Ignore null values as the retrieved batch may contains them when there are not enough
 				// uninitialized collection in the queue
 				var keys = new List<CacheKey>(batchSize);
@@ -103,16 +120,17 @@ namespace NHibernate.Event.Default
 					var coll = source.PersistenceContext.BatchFetchQueue.GetBatchLoadableCollection(persister, collectionEntries[i]);
 					Assemble(keys[i], cachedObjects[i], persister, source, coll, collectionBatch[i], false);
 				}
-				return Assemble(keys[0], cachedObjects[0], persister, source, collection, id, true);
+				return Assemble(keys[0], cachedObjects[0], persister, source, collection, collectionKey, true);
 			}
 
-			var cacheKey = source.GenerateCacheKey(id, persister.KeyType, persister.Role);
+			var cacheKey = source.GenerateCacheKey(collectionKey, persister.KeyType, persister.Role);
 			var cachedObject = persister.Cache.Get(cacheKey, source.Timestamp);
-			return Assemble(cacheKey, cachedObject, persister, source, collection, id, true);
+			return Assemble(cacheKey, cachedObject, persister, source, collection, collectionKey, true);
 		}
 
-		private bool Assemble(CacheKey ck, object ce, ICollectionPersister persister,  ISessionImplementor source,
-							  IPersistentCollection collection,  object id, bool alterStatistics)
+		private bool Assemble(
+			CacheKey ck, object ce, ICollectionPersister persister, ISessionImplementor source,
+			IPersistentCollection collection, object collectionKey, bool alterStatistics)
 		{
 			ISessionFactoryImplementor factory = source.Factory;
 			if (factory.Statistics.IsStatisticsEnabled && alterStatistics)
@@ -145,9 +163,12 @@ namespace NHibernate.Event.Default
 				IPersistenceContext persistenceContext = source.PersistenceContext;
 
 				CollectionCacheEntry cacheEntry = (CollectionCacheEntry) persister.CacheEntryStructure.Destructure(ce, factory);
-				cacheEntry.Assemble(collection, persister, persistenceContext.GetCollectionOwner(id, persister));
+				cacheEntry.Assemble(collection, persister, persistenceContext.GetCollectionOwner(collectionKey, persister));
 
 				persistenceContext.GetCollectionEntry(collection).PostInitialize(collection, persistenceContext);
+
+				if (collection.HasQueuedOperations)
+					collection.ApplyQueuedOperations();
 				return true;
 			}
 		}

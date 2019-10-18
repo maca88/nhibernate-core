@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using NHibernate.Util;
@@ -197,10 +196,10 @@ namespace NHibernate.Mapping
 				result.Append(GetType().FullName)
 					.Append('(')
 					.Append(Table.Name)
-					.Append(StringHelper.Join(", ", Columns))
+					.Append(string.Join(", ", Columns))
 					.Append(" ref-columns:")
 					.Append('(')
-					.Append(StringHelper.Join(", ", ReferencedColumns))
+					.Append(string.Join(", ", ReferencedColumns))
 					.Append(") as ")
 					.Append(Name);
 				return result.ToString();
@@ -232,6 +231,23 @@ namespace NHibernate.Mapping
 		public bool IsReferenceToPrimaryKey
 		{
 			get { return referencedColumns.Count == 0; }
+		}
+
+		public string GeneratedConstraintNamePrefix => "FK_";
+
+		public override bool IsGenerated(Dialect.Dialect dialect)
+		{
+			if (!HasPhysicalConstraint)
+				return false;
+			if (dialect.SupportsNullInUnique || IsReferenceToPrimaryKey)
+				return true;
+
+			foreach (var column in ReferencedColumns)
+			{
+				if (column.IsNullable)
+					return false;
+			}
+			return true;
 		}
 	}
 }

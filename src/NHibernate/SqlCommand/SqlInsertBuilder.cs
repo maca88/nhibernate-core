@@ -1,5 +1,5 @@
-using System.Collections.Generic;
-
+using System;
+using System.Linq;
 using NHibernate.Engine;
 using NHibernate.SqlTypes;
 using NHibernate.Type;
@@ -55,7 +55,7 @@ namespace NHibernate.SqlCommand
 			SqlType[] sqlTypes = propertyType.SqlTypes(factory);
 			if (sqlTypes.Length > 1)
 				throw new AssertionFailure("Adding one column for a composed IType.");
-			columns[columnName] = sqlTypes[0];
+			AddColumnWithValueOrType(columnName, sqlTypes[0]);
 			return this;
 		}
 
@@ -80,7 +80,7 @@ namespace NHibernate.SqlCommand
 		/// <returns>The SqlInsertBuilder.</returns>
 		public SqlInsertBuilder AddColumn(string columnName, string val)
 		{
-			columns[columnName] = val;
+			AddColumnWithValueOrType(columnName, val);
 			return this;
 		}
 
@@ -94,11 +94,20 @@ namespace NHibernate.SqlCommand
 				{
 					if (i >= sqlTypes.Length)
 						throw new AssertionFailure("Different columns and it's IType.");
-					columns[columnNames[i]] = sqlTypes[i];
+					AddColumnWithValueOrType(columnNames[i], sqlTypes[i]);
 				}
 			}
 
 			return this;
+		}
+
+		private void AddColumnWithValueOrType(string columnName, object valueOrType)
+		{
+			if (columns.ContainsKey(columnName))
+				throw new ArgumentException(
+					$"The column '{columnName}' has already been added in this SQL builder",
+					nameof(columnName));
+			columns.Add(columnName, valueOrType);
 		}
 
 		public virtual SqlInsertBuilder AddIdentityColumn(string columnName)
@@ -211,7 +220,7 @@ namespace NHibernate.SqlCommand
 
 		public SqlType[] GetParametersTypeArray()
 		{
-			return (new List<SqlType>(new SafetyEnumerable<SqlType>(columns.Values))).ToArray();
+			return new SafetyEnumerable<SqlType>(columns.Values).ToArray();
 		}
 	}
 }
