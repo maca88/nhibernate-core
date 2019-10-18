@@ -1,5 +1,5 @@
 Welcome to NHibernate
-=====================
+======================
 
 NHibernate is a mature, open source object-relational mapper for the .NET framework. It is actively developed,
 fully featured and used in thousands of successful projects.
