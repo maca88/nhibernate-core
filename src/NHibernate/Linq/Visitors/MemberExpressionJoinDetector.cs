@@ -1,8 +1,10 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using NHibernate.Engine;
 using NHibernate.Linq.Expressions;
 using NHibernate.Linq.ReWriters;
+using NHibernate.Util;
 using Remotion.Linq.Clauses;
 using Remotion.Linq.Clauses.Expressions;
 using Remotion.Linq.Parsing;
@@ -18,21 +20,23 @@ namespace NHibernate.Linq.Visitors
 	{
 		private readonly IIsEntityDecider _isEntityDecider;
 		private readonly IJoiner _joiner;
+		private readonly ISessionFactoryImplementor _sessionFactory;
 
 		private bool _requiresJoinForNonIdentifier;
 		private bool _preventJoinsInConditionalTest;
 		private bool _hasIdentifier;
 		private int _memberExpressionDepth;
 
-		public MemberExpressionJoinDetector(IIsEntityDecider isEntityDecider, IJoiner joiner)
+		public MemberExpressionJoinDetector(IIsEntityDecider isEntityDecider, IJoiner joiner, ISessionFactoryImplementor sessionFactory)
 		{
 			_isEntityDecider = isEntityDecider;
 			_joiner = joiner;
+			_sessionFactory = sessionFactory;
 		}
 
 		protected override Expression VisitMember(MemberExpression expression)
 		{
-			var isIdentifier = _isEntityDecider.IsIdentifier(expression.Expression.Type, expression.Member.Name);
+			var isEntity = _isEntityDecider.IsEntity(expression, out var isIdentifier);
 			if (isIdentifier)
 				_hasIdentifier = true;
 			if (!isIdentifier)
@@ -43,11 +47,11 @@ namespace NHibernate.Linq.Visitors
 			if (!isIdentifier)
 				_memberExpressionDepth--;
 
-			if (_isEntityDecider.IsEntity(expression.Type) &&
+			if (isEntity &&
 				((_requiresJoinForNonIdentifier && !_hasIdentifier) || _memberExpressionDepth > 0) &&
 				_joiner.CanAddJoin(expression))
 			{
-				var key = ExpressionKeyVisitor.Visit(expression, null);
+				var key = ExpressionKeyVisitor.Visit(expression, _sessionFactory, out _);
 				return _joiner.AddJoin(result, key);
 			}
 

@@ -30,6 +30,8 @@ namespace NHibernate.Driver
 		private readonly object _oracleDbTypeBlob;
 		private readonly object _oracleDbTypeNVarchar2;
 		private readonly object _oracleDbTypeNChar;
+		private readonly object _oracleDbTypeBinaryDouble;
+		private readonly object _oracleDbTypeBinaryFloat;
 
 		/// <summary>
 		/// Default constructor.
@@ -58,6 +60,8 @@ namespace NHibernate.Driver
 			_oracleDbTypeBlob = Enum.Parse(oracleDbTypeEnum, "Blob");
 			_oracleDbTypeNVarchar2 = Enum.Parse(oracleDbTypeEnum, "NVarchar2");
 			_oracleDbTypeNChar = Enum.Parse(oracleDbTypeEnum, "NChar");
+			_oracleDbTypeBinaryDouble = Enum.Parse(oracleDbTypeEnum, "BinaryDouble");
+			_oracleDbTypeBinaryFloat = Enum.Parse(oracleDbTypeEnum, "BinaryFloat");
 		}
 
 		/// <inheritdoc/>
@@ -130,6 +134,12 @@ namespace NHibernate.Driver
 					break;
 				case DbType.Currency:
 					base.InitializeParameter(dbParam, name, SqlTypeFactory.Decimal);
+					break;
+				case DbType.Double:
+					InitializeParameter(dbParam, name, _oracleDbTypeBinaryDouble);
+					break;
+				case DbType.Single:
+					InitializeParameter(dbParam, name, _oracleDbTypeBinaryFloat);
 					break;
 				default:
 					base.InitializeParameter(dbParam, name, sqlType);

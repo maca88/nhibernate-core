@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Dynamic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -8,6 +9,7 @@ using NHibernate.Hql.Ast;
 using NHibernate.Linq.Expressions;
 using NHibernate.Linq.Functions;
 using NHibernate.Param;
+using NHibernate.Type;
 using NHibernate.Util;
 using Remotion.Linq.Clauses.Expressions;
 
@@ -15,6 +17,13 @@ namespace NHibernate.Linq.Visitors
 {
 	public class HqlGeneratorExpressionVisitor : IHqlExpressionVisitor
 	{
+		private static readonly HashSet<System.Type> IntegerTypes = new HashSet<System.Type>
+		{
+			typeof(short), typeof(ushort),
+			typeof(int), typeof(uint),
+			typeof(long), typeof(ulong)
+		};
+
 		private readonly HqlTreeBuilder _hqlTreeBuilder = new HqlTreeBuilder();
 		private readonly VisitorParameters _parameters;
 		private readonly ILinqToHqlGeneratorsRegistry _functionRegistry;
@@ -268,8 +277,7 @@ possible solutions:
 
 		protected HqlTreeNode VisitNhDistinct(NhDistinctExpression expression)
 		{
-			var visitor = new HqlGeneratorExpressionVisitor(_parameters);
-			return _hqlTreeBuilder.ExpressionSubTreeHolder(_hqlTreeBuilder.Distinct(), visitor.VisitExpression(expression.Expression));
+			return _hqlTreeBuilder.ExpressionSubTreeHolder(_hqlTreeBuilder.Distinct(), VisitExpression(expression.Expression));
 		}
 
 		protected HqlTreeNode VisitQuerySourceReferenceExpression(QuerySourceReferenceExpression expression)
@@ -312,6 +320,7 @@ possible solutions:
 					return _hqlTreeBuilder.BooleanOr(lhs.ToBooleanExpression(), rhs.ToBooleanExpression());
 
 				case ExpressionType.Add:
+				case ExpressionType.AddChecked:
 					if (expression.Left.Type == typeof (string) && expression.Right.Type == typeof(string))
 					{
 						return _hqlTreeBuilder.MethodCall("concat", lhs, rhs);
@@ -319,12 +328,26 @@ possible solutions:
 					return _hqlTreeBuilder.Add(lhs, rhs);
 
 				case ExpressionType.Subtract:
+				case ExpressionType.SubtractChecked:
 					return _hqlTreeBuilder.Subtract(lhs, rhs);
 
 				case ExpressionType.Multiply:
+				case ExpressionType.MultiplyChecked:
 					return _hqlTreeBuilder.Multiply(lhs, rhs);
 
 				case ExpressionType.Divide:
+					// In some databases (e.g. Oracle) division of two integer produces a decimal value where in .NET
+					// the result is an integer. Use floor method if exists otherwise cast in order to prevent ORA-01406
+					// error in Oracle and to simulate what .NET does. We cannot use always cast method as in some
+					// databases (e.g. Oracle) it rounds the result.
+					if (IntegerTypes.Contains(expression.Left.Type.UnwrapIfNullable()) &&
+						IntegerTypes.Contains(expression.Right.Type.UnwrapIfNullable()))
+					{
+						return _parameters.SessionFactory.SQLFunctionRegistry.FindSQLFunction("floor") != null
+							? (HqlTreeNode) _hqlTreeBuilder.MethodCall("floor", _hqlTreeBuilder.Divide(lhs, rhs))
+							: _hqlTreeBuilder.Cast(_hqlTreeBuilder.Divide(lhs, rhs), expression.Type);
+					}
+
 					return _hqlTreeBuilder.Divide(lhs, rhs);
 
 				case ExpressionType.Modulo:
@@ -480,6 +503,18 @@ possible solutions:
 					if ((expression.Operand.Type.IsPrimitive || expression.Operand.Type == typeof(Decimal)) &&
 						(expression.Type.IsPrimitive || expression.Type == typeof(Decimal)))
 					{
+						try
+						{
+							_parameters.SessionFactory.Dialect.GetCastTypeName(
+								TypeFactory.GetDefaultTypeFor(expression.Type)
+								           .SqlTypes(_parameters.SessionFactory)[0]);
+						}
+						catch
+						{
+							return _hqlTreeBuilder.TransparentCast(VisitExpression(expression.Operand).AsExpression(), expression.Type);
+						}
+						
+
 						return _hqlTreeBuilder.Cast(VisitExpression(expression.Operand).AsExpression(), expression.Type);
 					}
 
@@ -534,8 +569,12 @@ possible solutions:
 
 		protected HqlTreeNode VisitMethodCallExpression(MethodCallExpression expression)
 		{
-			IHqlGeneratorForMethod generator;
+			if (VisitorUtil.IsMappedAs(expression.Method))
+			{
+				return Visit(expression.Arguments[0]);
+			}
 
+			IHqlGeneratorForMethod generator;
 			var method = expression.Method;
 			if (!_functionRegistry.TryGetGenerator(method, out generator))
 			{

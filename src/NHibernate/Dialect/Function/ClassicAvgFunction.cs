@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using NHibernate.Engine;
 using NHibernate.SqlTypes;
 using NHibernate.Type;
@@ -9,6 +11,8 @@ namespace NHibernate.Dialect.Function
 	/// <summary>
 	/// Classic AVG sqlfunction that return types as it was done in Hibernate 3.1
 	/// </summary>
+	// Since v5.3
+	[Obsolete("This class has no more usages in NHibernate and will be removed in a future version.")]
 	[Serializable]
 	public class ClassicAvgFunction : ClassicAggregateFunction
 	{
@@ -16,28 +20,20 @@ namespace NHibernate.Dialect.Function
 		{
 		}
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public override IType ReturnType(IType columnType, IMapping mapping)
 		{
-			if (columnType == null)
-			{
-				throw new ArgumentNullException("columnType");
-			}
-			SqlType[] sqlTypes;
-			try
-			{
-				sqlTypes = columnType.SqlTypes(mapping);
-			}
-			catch (MappingException me)
-			{
-				throw new QueryException(me);
-			}
+			return GetReturnType(new IType[] {columnType}, mapping, true);
+		}
 
-			if (sqlTypes.Length != 1)
+		/// <inheritdoc />
+		public override IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			if (!TryGetArgumentType(argumentTypes, mapping, throwOnError, out var argumentType, out var sqlType))
 			{
-				throw new QueryException("multi-column type can not be in avg()");
+				return null;
 			}
-
-			SqlType sqlType = sqlTypes[0];
 
 			if (sqlType.DbType == DbType.Int16 || sqlType.DbType == DbType.Int32 || sqlType.DbType == DbType.Int64)
 			{
@@ -45,7 +41,7 @@ namespace NHibernate.Dialect.Function
 			}
 			else
 			{
-				return columnType;
+				return argumentType;
 			}
 		}
 	}

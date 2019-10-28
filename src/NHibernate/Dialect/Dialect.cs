@@ -93,7 +93,7 @@ namespace NHibernate.Dialect
 			RegisterFunction("coalesce", new StandardSQLFunction("coalesce"));
 			RegisterFunction("nullif", new StandardSQLFunction("nullif"));
 			RegisterFunction("abs", new StandardSQLFunction("abs"));
-			RegisterFunction("mod", new StandardSQLFunction("mod", NHibernateUtil.Int32));
+			RegisterFunction("mod", new ModulusFunction(false, false));
 			RegisterFunction("sqrt", new StandardSQLFunction("sqrt", NHibernateUtil.Double));
 			RegisterFunction("upper", new StandardSQLFunction("upper"));
 			RegisterFunction("lower", new StandardSQLFunction("lower"));
@@ -280,8 +280,6 @@ namespace NHibernate.Dialect
 			switch (sqlType.DbType)
 			{
 				case DbType.Decimal:
-				// Oracle dialect defines precision and scale for double, because it uses number instead of binary_double.
-				case DbType.Double:
 					// We cannot know if the user needs its digit after or before the dot, so use a configurable
 					// default.
 					return castTypeNames.Get(sqlType.DbType, 0, DefaultCastPrecision, DefaultCastScale);
@@ -290,6 +288,7 @@ namespace NHibernate.Dialect
 				case DbType.DateTimeOffset:
 				case DbType.Time:
 				case DbType.Currency:
+				case DbType.Double:
 					// Use default for these, dialects are supposed to map them to max capacity
 					return castTypeNames.Get(sqlType.DbType);
 				default:
@@ -2548,6 +2547,11 @@ namespace NHibernate.Dialect
 		{
 			get { return String.Empty; } // for differentiation of mysql storage engines
 		}
+
+		/// <summary>
+		/// Whether <see cref="Decimal"/> is stored as a floating point number.
+		/// </summary>
+		public virtual bool IsDecimalStoredAsFloatingPointNumber => false;
 
 		/// <summary>
 		/// The keyword used to specify a nullable column

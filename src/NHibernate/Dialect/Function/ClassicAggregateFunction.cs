@@ -1,15 +1,18 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using NHibernate.Engine;
 using NHibernate.SqlCommand;
+using NHibernate.SqlTypes;
 using NHibernate.Type;
 using NHibernate.Util;
 
 namespace NHibernate.Dialect.Function
 {
 	[Serializable]
-	public class ClassicAggregateFunction : ISQLFunction, IFunctionGrammar
+	public class ClassicAggregateFunction : ISQLFunction, ISQLFunctionExtended, IFunctionGrammar
 	{
 		private IType returnType = null;
 		private readonly string name;
@@ -40,10 +43,23 @@ namespace NHibernate.Dialect.Function
 
 		#region ISQLFunction Members
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public virtual IType ReturnType(IType columnType, IMapping mapping)
 		{
 			return returnType ?? columnType;
 		}
+
+		/// <inheritdoc />
+		public virtual IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+#pragma warning disable 618
+			return ReturnType(argumentTypes.FirstOrDefault(), mapping);
+#pragma warning restore 618
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => returnType;
 
 		public bool HasArguments
 		{
@@ -90,6 +106,63 @@ namespace NHibernate.Dialect.Function
 		}
 
 		#endregion
+
+		protected bool TryGetArgumentType(
+			IEnumerable<IType> argumentTypes,
+			IMapping mapping,
+			bool throwOnError,
+			out IType argumentType,
+			out SqlType sqlType)
+		{
+			sqlType = null;
+			argumentType = null;
+			if (argumentTypes.Count() != 1)
+			{
+				if (throwOnError)
+				{
+					throw new QueryException($"Invalid number of arguments for {name}()");
+				}
+
+				return false;
+			}
+
+			argumentType = argumentTypes.First();
+			if (argumentType == null)
+			{
+				// The argument is a parameter (e.g. select avg(:p1) from OrderLine). In that case, if the datatype is needed
+				// a QueryException will be thrown in SelectClause class, otherwise the query will be executed
+				// (e.g. select case when avg(:p1) > 0 then 1 else 0 end from OrderLine).
+				return false;
+			}
+
+			SqlType[] sqlTypes;
+			try
+			{
+				sqlTypes = argumentType.SqlTypes(mapping);
+			}
+			catch (MappingException me)
+			{
+				if (throwOnError)
+				{
+					throw new QueryException(me);
+				}
+
+				return false;
+			}
+
+			if (sqlTypes.Length != 1)
+			{
+				if (throwOnError)
+				{
+					throw new QueryException($"Multi-column type can not be in {name}()");
+				}
+
+				return false;
+			}
+
+			sqlType = sqlTypes[0];
+			return true;
+		}
 
 		public override string ToString()
 		{

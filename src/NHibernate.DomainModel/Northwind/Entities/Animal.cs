@@ -14,6 +14,7 @@ namespace NHibernate.DomainModel.Northwind.Entities
         public virtual string SerialNumber { get; set; }
 		public virtual string FatherSerialNumber => Father?.SerialNumber;
 		public virtual bool HasFather => Father != null;
+		public virtual Animal FatherOrMother => Father ?? Mother;
 	}
 
     public abstract class Reptile : Animal

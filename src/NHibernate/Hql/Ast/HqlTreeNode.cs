@@ -228,6 +228,15 @@ namespace NHibernate.Hql.Ast
 				case TypeCode.Int64:
 					SetText("long");
 					break;
+				case TypeCode.UInt16:
+					SetText("ushort");
+					break;
+				case TypeCode.UInt32:
+					SetText("uint");
+					break;
+				case TypeCode.UInt64:
+					SetText("ulong");
+					break;
 				case TypeCode.Decimal:
 					SetText("decimal");
 					break;
@@ -239,6 +248,9 @@ namespace NHibernate.Hql.Ast
 					break;
 				case TypeCode.String:
 					SetText("string");
+					break;
+				case TypeCode.Char:
+					SetText("char");
 					break;
 				case TypeCode.Double:
 					SetText("double");
@@ -267,10 +279,14 @@ namespace NHibernate.Hql.Ast
 				case TypeCode.Int16:
 				case TypeCode.Int32:
 				case TypeCode.Int64:
+				case TypeCode.UInt16:
+				case TypeCode.UInt32:
+				case TypeCode.UInt64:
 				case TypeCode.Decimal:
 				case TypeCode.Single:
 				case TypeCode.DateTime:
 				case TypeCode.String:
+				case TypeCode.Char:
 				case TypeCode.Double:
 					return true;
 				default:

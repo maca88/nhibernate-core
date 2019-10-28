@@ -22,12 +22,14 @@ namespace NHibernate.Type
 
 		public override object Get(DbDataReader rs, int index, ISessionImplementor session)
 		{
-			return Convert.ToDouble(rs[index]);
+			// Some drivers like OracleManagedDataClientDriver may fail whether rs[index] is used
+			// as it would try to cast the value to decimal.
+			return rs.GetDouble(index);
 		}
 
 		public override object Get(DbDataReader rs, string name, ISessionImplementor session)
 		{
-			return Convert.ToDouble(rs[name]);
+			return Get(rs, rs.GetOrdinal(name), session);
 		}
 
 		/// <summary></summary>

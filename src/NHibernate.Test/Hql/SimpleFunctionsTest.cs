@@ -120,7 +120,7 @@ namespace NHibernate.Test.Hql
 			//<setquantifier> ::= DISTINCT | ALL
 			IList args = new ArrayList();
 
-			ClassicSumFunction csf = new ClassicSumFunction();
+			var csf = new ClassicAggregateFunction("sum", false);
 			args.Add("va1");
 			Assert.AreEqual("sum(va1)", csf.Render(args, factoryImpl).ToString());
 
@@ -166,7 +166,7 @@ namespace NHibernate.Test.Hql
 			//<setquantifier> ::= DISTINCT | ALL
 			IList args = new ArrayList();
 
-			ClassicAvgFunction caf = new ClassicAvgFunction();
+			var caf = new ClassicAggregateFunction("avg", false);
 			args.Add("va1");
 			Assert.AreEqual("avg(va1)", caf.Render(args, factoryImpl).ToString());
 

@@ -21,5 +21,8 @@
 
 		/// <inheritdoc />
 		public override bool SupportsRowValueConstructorSyntax => true;
+
+		/// <inheritdoc />
+		public override bool SupportsBitwiseOperatorsOnBoolean => false;
 	}
 }

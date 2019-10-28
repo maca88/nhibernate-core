@@ -23,8 +23,6 @@ namespace NHibernate.Dialect
 			// http://dev.mysql.com/doc/refman/5.0/en/cast-functions.html
 			RegisterCastType(DbType.Decimal, "DECIMAL(19,5)");
 			RegisterCastType(DbType.Decimal, 29, "DECIMAL($p, $s)");
-			RegisterCastType(DbType.Double, "DECIMAL(19,5)");
-			RegisterCastType(DbType.Single, "DECIMAL(19,5)");
 			RegisterCastType(DbType.Guid, "BINARY(16)");
 		}
 

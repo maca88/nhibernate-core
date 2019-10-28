@@ -8,5 +8,6 @@ namespace NHibernate.DomainModel.Northwind.Entities
 		public virtual bool IsActive { get; set; }
 		public virtual AnotherEntity Entity { get; set; }
 		public virtual Role ParentRole { get; set; }
+		public virtual User CreatedBy { get; set; } // Not mapped
 	}
 }

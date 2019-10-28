@@ -133,5 +133,23 @@ namespace NHibernate.Linq.Visitors
 			}
 			return path;
 		}
+
+		internal static bool IsMappedAs(MethodInfo methodInfo)
+		{
+			return methodInfo.Name == nameof(LinqExtensionMethods.MappedAs) &&
+					methodInfo.DeclaringType == typeof(LinqExtensionMethods);
+		}
+
+		internal static bool TryGetEvalExpression(MethodCallExpression methodExpression, out Expression expression)
+		{
+			if (methodExpression.Method.DeclaringType != typeof(ExpressionEvaluation))
+			{
+				expression = null;
+				return false;
+			}
+
+			expression = ((LambdaExpression) ((UnaryExpression) methodExpression.Arguments[0]).Operand).Body;
+			return true;
+		}
 	}
 }

@@ -7,6 +7,7 @@ using NHibernate.Linq;
 using NHibernate.DomainModel.Northwind.Entities;
 using NHibernate.Type;
 using NUnit.Framework;
+using NHibernate.Linq.Visitors;
 
 namespace NHibernate.Test.Linq
 {
@@ -69,17 +70,24 @@ namespace NHibernate.Test.Linq
 				Expression<Func<IEnumerable<Customer>>> newYork =
 					() => from c in db.Customers where c.Address.City == "New York".MappedAs(NHibernateUtil.AnsiString) select c;
 
-				var nhLondon = new NhLinqExpression(london.Body, Sfi);
-				var nhNewYork = new NhLinqExpression(newYork.Body, Sfi);
+				var londonParameters = GetParameters(london.Body);
+				var newYorkParameters = GetParameters(newYork.Body);
 
-				var londonParameter = nhLondon.ParameterValuesByName.Single().Value;
-				Assert.That(londonParameter.Item1, Is.EqualTo("London"));
-				Assert.That(londonParameter.Item2, Is.EqualTo(NHibernateUtil.StringClob));
+				var londonParameter = londonParameters.Single();
+				Assert.That(londonParameter.Key.Value, Is.EqualTo("London"));
+				Assert.That(londonParameter.Value, Is.EqualTo(NHibernateUtil.StringClob));
 
-				var newYorkParameter = nhNewYork.ParameterValuesByName.Single().Value;
-				Assert.That(newYorkParameter.Item1, Is.EqualTo("New York"));
-				Assert.That(newYorkParameter.Item2, Is.EqualTo(NHibernateUtil.AnsiString));
+				var newYorkParameter = newYorkParameters.Single();
+				Assert.That(newYorkParameter.Key.Value, Is.EqualTo("New York"));
+				Assert.That(newYorkParameter.Value, Is.EqualTo(NHibernateUtil.AnsiString));
 			}
+		}
+
+		private Dictionary<ConstantExpression, IType> GetParameters(Expression expression)
+		{
+			expression = NhRelinqQueryParser.PreTransform(expression);
+			var queryModel = NhRelinqQueryParser.Parse(expression);
+			return ConstantTypeLocator.GetTypes(queryModel, Sfi);
 		}
 
 		[Test]

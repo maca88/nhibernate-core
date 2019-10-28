@@ -14,6 +14,8 @@ namespace NHibernate.Linq.Visitors
 	/// <summary>
 	/// Locates constants in the expression tree and generates parameters for each one
 	/// </summary>
+	// Since v5.3
+	[Obsolete("This class has no more usages in NHibernate and will be removed in a future version.")]
 	public class ExpressionParameterVisitor : RelinqExpressionVisitor
 	{
 		private readonly Dictionary<ConstantExpression, NamedParameter> _parameters = new Dictionary<ConstantExpression, NamedParameter>();

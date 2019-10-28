@@ -53,6 +53,12 @@ namespace NHibernate.Util
 
 			internal static readonly MethodInfo ToListDefinition =
 				ReflectHelper.GetMethodDefinition(() => Enumerable.ToList<object>(null));
+
+			internal static readonly MethodInfo SkipDefinition =
+				ReflectHelper.GetMethodDefinition(() => Enumerable.Skip<object>(null, 0));
+
+			internal static readonly MethodInfo TakeDefinition =
+				ReflectHelper.GetMethodDefinition(() => Enumerable.Take<object>(null, 0));
 		}
 
 		internal static class MethodBaseMethods
@@ -199,6 +205,11 @@ namespace NHibernate.Util
 				ReflectHelper.GetMethodDefinition(() => Queryable.Average(null, default(Expression<Func<object, decimal>>)));
 			internal static readonly MethodInfo AverageWithSelectorOfNullableDecimalDefinition =
 				ReflectHelper.GetMethodDefinition(() => Queryable.Average(null, default(Expression<Func<object, decimal?>>)));
+
+			internal static readonly MethodInfo SkipDefinition =
+				ReflectHelper.GetMethodDefinition(() => Queryable.Skip<object>(null, 0));
+			internal static readonly MethodInfo TakeDefinition =
+				ReflectHelper.GetMethodDefinition(() => Queryable.Take<object>(null, 0));
 		}
 
 		internal static class TypeMethods

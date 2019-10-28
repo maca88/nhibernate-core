@@ -35,7 +35,9 @@ namespace NHibernate.Type
 		{
 			try
 			{
-				return Convert.ToSingle(rs[index]);
+				// Some drivers like OracleManagedDataClientDriver may fail whether rs[index] is used
+				// as it would try to cast the value to decimal.
+				return rs.GetFloat(index);
 			}
 			catch (Exception ex)
 			{
@@ -45,14 +47,7 @@ namespace NHibernate.Type
 
 		public override object Get(DbDataReader rs, string name, ISessionImplementor session)
 		{
-			try
-			{
-				return Convert.ToSingle(rs[name]);
-			}
-			catch (Exception ex)
-			{
-				throw new FormatException(string.Format("Input string '{0}' was not in the correct format.", rs[name]), ex);
-			}
+			return Get(rs, rs.GetOrdinal(name), session);
 		}
 
 		public override System.Type ReturnedClass

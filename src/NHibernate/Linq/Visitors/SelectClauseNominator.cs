@@ -2,12 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using NHibernate.Dialect.Function;
 using NHibernate.Hql.Ast;
 using NHibernate.Linq.Functions;
 using NHibernate.Linq.Expressions;
-using NHibernate.Persister.Entity;
 using NHibernate.Type;
-using Remotion.Linq.Clauses.Expressions;
 using NHibernate.Util;
 
 namespace NHibernate.Linq.Visitors
@@ -18,8 +17,22 @@ namespace NHibernate.Linq.Visitors
 	/// </summary>
 	class SelectClauseHqlNominator
 	{
+		private static readonly HashSet<System.Type> DateTypes = new HashSet<System.Type>
+		{
+			typeof(DateTime), typeof(DateTimeOffset), typeof(TimeSpan)
+		};
+
+		private static readonly HashSet<ExpressionType> ArithmeticOperations = new HashSet<ExpressionType>
+		{
+			ExpressionType.Add, ExpressionType.AddChecked,
+			ExpressionType.Subtract, ExpressionType.SubtractChecked,
+			ExpressionType.Multiply, ExpressionType.MultiplyChecked,
+			ExpressionType.Divide
+		};
+
 		private readonly ILinqToHqlGeneratorsRegistry _functionRegistry;
 		private readonly VisitorParameters _parameters;
+		private bool _forceClientSide;
 
 		/// <summary>
 		/// The expression parts that can be converted to pure HQL.
@@ -149,33 +162,61 @@ namespace NHibernate.Linq.Visitors
 
 		private bool CanBeEvaluatedInHql(MethodCallExpression methodExpression)
 		{
+			if (VisitorUtil.IsMappedAs(methodExpression.Method))
+			{
+				return CanBeEvaluatedInHql(methodExpression.Arguments[0]);
+			}
+
+			if (VisitorUtil.TryGetEvalExpression(methodExpression, out var expression))
+			{
+				if (methodExpression.Method.Name == nameof(ExpressionEvaluation.DatabaseEval))
+				{
+					HqlCandidates.Add(expression);
+					return false;
+				}
+
+				if (_forceClientSide)
+				{
+					throw new InvalidOperationException(
+						$"{nameof(ExpressionEvaluation.ClientEval)} cannot be used inside another {nameof(ExpressionEvaluation.ClientEval)}.");
+				}
+
+				_forceClientSide = true;
+				CanBeEvaluatedInHql(expression);
+				_forceClientSide = false;
+				return false;
+			}
+
 			var canBeEvaluated = methodExpression.Object == null || // Is static or extension method
 			                     (methodExpression.Object.NodeType != ExpressionType.Constant && // Does not belong to a parameter
 			                     CanBeEvaluatedInHql(methodExpression.Object));
 			foreach (var argumentExpression in methodExpression.Arguments)
 			{
-				// If one of the agruments cannot be converted to hql we have to execute the method on the client side
+				// If one of the arguments cannot be converted to hql we have to execute the method on the client side
 				canBeEvaluated &= CanBeEvaluatedInHql(argumentExpression);
 			}
 
-			canBeEvaluated &= _functionRegistry.TryGetGenerator(methodExpression.Method, out _);
+			canBeEvaluated &= !_forceClientSide && _functionRegistry.TryGetGenerator(methodExpression.Method, out _);
 			ContainsUntranslatedMethodCalls |= !canBeEvaluated;
 			return canBeEvaluated;
 		}
 
 		private bool CanBeEvaluatedInHql(MemberExpression memberExpression)
 		{
-			var canBeEvaluated = CanBeEvaluatedInHql(memberExpression.Expression);
-			// Check for a mapped property e.g. Count
-			if (!canBeEvaluated || _functionRegistry.TryGetGenerator(memberExpression.Member, out _))
+			if (!CanBeEvaluatedInHql(memberExpression.Expression))
 			{
-				return canBeEvaluated;
+				return false;
+			}
+
+			// Check for a mapped property e.g. Count
+			if (_functionRegistry.TryGetGenerator(memberExpression.Member, out _))
+			{
+				return !_forceClientSide;
 			}
 
 			// Check whether the member is mapped. TryGetEntityName will return not return the entity name when the
 			// member is part of a composite element of a collection, so check if the type was found.
-			ExpressionsHelper.TryGetEntityName(_parameters.SessionFactory, memberExpression, out _, out var memberType);
-			return memberType != null;
+			return ExpressionsHelper.TryGetMappedType(_parameters.SessionFactory, memberExpression, out _, out _, out _, out _);
 		}
 
 		private bool CanBeEvaluatedInHql(ConditionalExpression conditionalExpression)
@@ -194,26 +235,28 @@ namespace NHibernate.Linq.Visitors
 			canBeEvaluated &= (CanBeEvaluatedInHql(conditionalExpression.IfTrue) && HqlIdent.SupportsType(conditionalExpression.IfTrue.Type)) &
 			                  (CanBeEvaluatedInHql(conditionalExpression.IfFalse) && HqlIdent.SupportsType(conditionalExpression.IfFalse.Type));
 
-			return canBeEvaluated;
+			return !_forceClientSide && canBeEvaluated;
 		}
 
 		private bool CanBeEvaluatedInHql(BinaryExpression binaryExpression)
 		{
 			var canBeEvaluated = CanBeEvaluatedInHql(binaryExpression.Left) &
-			                     CanBeEvaluatedInHql(binaryExpression.Right);
+								 CanBeEvaluatedInHql(binaryExpression.Right);
+			if (!canBeEvaluated || _forceClientSide)
+			{
+				return false;
+			}
 
 			// Subtract datetimes on the client side as the result varies when executed on the server side.
-			// In Sql Server when using datetime2 subtract is not possbile.
+			// In Sql Server when using datetime2 subtract is not possible.
 			// In Oracle a number is returned that represents the difference between the two in days.
-			if (new[]
-			    {
-				    ExpressionType.Subtract,
-				    ExpressionType.SubtractChecked
-			    }.Contains(binaryExpression.NodeType) &&
-			    ContainsAnyOfTypes(new[] {binaryExpression.Left, binaryExpression.Right},
-			                       typeof(DateTime?), typeof(DateTime),
-			                       typeof(DateTimeOffset?), typeof(DateTimeOffset),
-			                       typeof(TimeSpan?), typeof(TimeSpan)))
+			if ((binaryExpression.NodeType == ExpressionType.Subtract || binaryExpression.NodeType == ExpressionType.SubtractChecked) &&
+			    ContainsAnyOfTypes(DateTypes, binaryExpression.Left, binaryExpression.Right))
+			{
+				return false;
+			}
+
+			if (!CanArithmeticOperationBeEvaluatedInHql(binaryExpression))
 			{
 				return false;
 			}
@@ -222,10 +265,48 @@ namespace NHibernate.Linq.Visitors
 			if (binaryExpression.NodeType == ExpressionType.Add &&
 			    (binaryExpression.Left.Type == typeof(string) || binaryExpression.Right.Type == typeof(string)))
 			{
-				canBeEvaluated &= binaryExpression.Left.Type == binaryExpression.Right.Type;
+				return binaryExpression.Left.Type == binaryExpression.Right.Type;
 			}
 
-			return canBeEvaluated;
+			if (binaryExpression.NodeType == ExpressionType.Modulo)
+			{
+				var sqlFunction = _parameters.SessionFactory.SQLFunctionRegistry.FindSQLFunction("mod");
+				if (sqlFunction == null || !(sqlFunction is ISQLFunctionExtended extendedSqlFunction))
+				{
+					return false; // Fallback to old behavior
+				}
+
+				var arguments = GetTypes(binaryExpression.Left, binaryExpression.Right);
+				return extendedSqlFunction.GetReturnType(arguments, _parameters.SessionFactory, false) != null;
+			}
+
+			return true;
+		}
+
+		private bool CanArithmeticOperationBeEvaluatedInHql(BinaryExpression expression)
+		{
+			if (!ContainsType(typeof(decimal), expression.Left, expression.Right))
+			{
+				return true;
+			}
+
+			// Some databases (e.g. SQLite) stores decimals as a floating point number, which may cause incorrect results when using
+			// any arithmetic operation.
+			if (_parameters.SessionFactory.Dialect.IsDecimalStoredAsFloatingPointNumber && ArithmeticOperations.Contains(expression.NodeType))
+			{
+				return false;
+			}
+
+			// Divide and Multiply operator on decimals produce different results when executed on server side, due to different precisions.
+			// In order to achieve the best precision possible, do the calculation on the client.
+			if (expression.NodeType == ExpressionType.Divide ||
+				expression.NodeType == ExpressionType.Multiply ||
+				expression.NodeType == ExpressionType.MultiplyChecked)
+			{
+				return false;
+			}
+
+			return true;
 		}
 
 		private bool CanBeEvaluatedInHql(MemberInitExpression memberInitExpression)
@@ -312,9 +393,34 @@ namespace NHibernate.Linq.Visitors
 			}
 		}
 
-		private static bool ContainsAnyOfTypes(IEnumerable<Expression> expressions, params System.Type[] types)
+		private static bool ContainsAnyOfTypes(HashSet<System.Type> types, params Expression[] expressions)
 		{
-			return expressions.Any(o => types.Contains(o.Type));
+			return expressions.Any(o => types.Contains(o.Type.UnwrapIfNullable()));
+		}
+
+		private static bool ContainsType(System.Type type, params Expression[] expressions)
+		{
+			return expressions.Any(o => type == o.Type.UnwrapIfNullable());
+		}
+
+		private IEnumerable<IType> GetTypes(params Expression[] expressions)
+		{
+			foreach (var expression in expressions)
+			{
+				if (expression is ConstantExpression constantExpression &&
+					_parameters.ConstantToParameterMap.TryGetValue(constantExpression, out var param))
+				{
+					yield return param.Type;
+				}
+				else if (ExpressionsHelper.TryGetMappedType(_parameters.SessionFactory, expression, out var type, out _, out _, out _))
+				{
+					yield return type;
+				}
+				else
+				{
+					yield return TypeFactory.HeuristicType(expression.Type);
+				}
+			}
 		}
 	}
 }

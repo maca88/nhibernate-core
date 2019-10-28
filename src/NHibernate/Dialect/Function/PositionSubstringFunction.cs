@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using Antlr.Runtime;
 using NHibernate.Engine;
@@ -12,7 +13,7 @@ namespace NHibernate.Dialect.Function
 	/// Emulation of locate() on PostgreSQL
 	/// </summary>
 	[Serializable]
-	public class PositionSubstringFunction : ISQLFunction
+	public class PositionSubstringFunction : ISQLFunction, ISQLFunctionExtended
 	{
 		public PositionSubstringFunction()
 		{
@@ -20,10 +21,21 @@ namespace NHibernate.Dialect.Function
 
 		#region ISQLFunction Members
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public IType ReturnType(IType columnType, IMapping mapping)
 		{
-			return NHibernateUtil.Int32;
+			return DefaultReturnType;
 		}
+
+		/// <inheritdoc />
+		public IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			return DefaultReturnType;
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => NHibernateUtil.Int32;
 
 		public bool HasArguments
 		{

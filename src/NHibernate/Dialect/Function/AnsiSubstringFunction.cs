@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using NHibernate.Engine;
 using NHibernate.SqlCommand;
@@ -22,14 +23,25 @@ namespace NHibernate.Dialect.Function
 	///]]>
 	/// </remarks>
 	[Serializable]
-	public class AnsiSubstringFunction : ISQLFunction
+	public class AnsiSubstringFunction : ISQLFunction, ISQLFunctionExtended
 	{
 		#region ISQLFunction Members
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public IType ReturnType(IType columnType, IMapping mapping)
 		{
-			return NHibernateUtil.String;
+			return DefaultReturnType;
 		}
+
+		/// <inheritdoc />
+		public IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			return DefaultReturnType;
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => NHibernateUtil.String;
 
 		public bool HasArguments
 		{

@@ -4,9 +4,11 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using NHibernate.Dialect.Function;
 using NHibernate.Engine;
 using NHibernate.Hql.Ast;
 using NHibernate.Linq.Visitors;
+using NHibernate.Type;
 using NHibernate.Util;
 
 namespace NHibernate.Linq.Functions
@@ -79,7 +81,7 @@ namespace NHibernate.Linq.Functions
 					throw new InvalidOperationException("Sql function length is not supported for the current dialect.");
 				}
 
-				var returnType = sqlFunction.ReturnType(NHibernateUtil.Int32, sessionFactory);
+				var returnType = sqlFunction.GetReturnType(new IType[] {NHibernateUtil.Int32}, sessionFactory, true);
 				if (!NHibernateUtil.Int32.Equals(returnType))
 				{
 					return treeBuilder.Cast(

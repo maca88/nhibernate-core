@@ -3,6 +3,7 @@ using NHibernate.Engine;
 using NHibernate.SqlCommand;
 using NHibernate.Type;
 using System;
+using System.Collections.Generic;
 
 namespace NHibernate.Dialect.Function
 {
@@ -10,7 +11,7 @@ namespace NHibernate.Dialect.Function
 	/// Summary description for NoArgSQLFunction.
 	/// </summary>
 	[Serializable]
-	public class NoArgSQLFunction : ISQLFunction
+	public class NoArgSQLFunction : ISQLFunction, ISQLFunctionExtended
 	{
 		public NoArgSQLFunction(string name, IType returnType)
 			: this(name, returnType, true)
@@ -30,10 +31,21 @@ namespace NHibernate.Dialect.Function
 
 		#region ISQLFunction Members
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public IType ReturnType(IType columnType, IMapping mapping)
 		{
 			return FunctionReturnType;
 		}
+
+		/// <inheritdoc />
+		public IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			return FunctionReturnType;
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => FunctionReturnType;
 
 		public bool HasArguments
 		{

@@ -82,9 +82,9 @@ namespace NHibernate.Dialect
 			RegisterFunction("replace", new StandardSafeSQLFunction("replace", NHibernateUtil.String, 3));
 			RegisterFunction("chr", new StandardSQLFunction("char", NHibernateUtil.Character));
 
-			RegisterFunction("mod", new SQLFunctionTemplate(NHibernateUtil.Int32, "((?1) % (?2))"));
+			RegisterFunction("mod", new ModulusFunctionTemplate(false));
 
-			RegisterFunction("iif", new SQLFunctionTemplate(null, "case when ?1 then ?2 else ?3 end"));
+			RegisterFunction("iif", new IifSQLFunction());
 
 			RegisterFunction("cast", new SQLiteCastFunction());
 
@@ -422,6 +422,11 @@ namespace NHibernate.Dialect
 		// Said to be unlimited. http://sqlite.1065341.n5.nabble.com/Max-limits-on-the-following-td37859.html
 		/// <inheritdoc />
 		public override int MaxAliasLength => 128;
+
+		/// <summary>
+		/// SQLite does not have a dedicated decimal type, decimal is stored as REAL (8-byte IEEE floating point number).
+		/// </summary>
+		public override bool IsDecimalStoredAsFloatingPointNumber => true;
 
 		[Serializable]
 		protected class SQLiteCastFunction : CastFunction

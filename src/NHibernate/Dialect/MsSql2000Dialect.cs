@@ -9,6 +9,7 @@ using NHibernate.Engine;
 using NHibernate.Mapping;
 using NHibernate.SqlCommand;
 using NHibernate.SqlCommand.Parser;
+using NHibernate.SqlTypes;
 using NHibernate.Type;
 using NHibernate.Util;
 using Environment = NHibernate.Cfg.Environment;
@@ -312,7 +313,7 @@ namespace NHibernate.Dialect
 			RegisterFunction("ln", new StandardSQLFunction("ln", NHibernateUtil.Double));
 			RegisterFunction("log", new StandardSQLFunction("log", NHibernateUtil.Double));
 			RegisterFunction("log10", new StandardSQLFunction("log10", NHibernateUtil.Double));
-			RegisterFunction("mod", new SQLFunctionTemplate(NHibernateUtil.Int32, "((?1) % (?2))"));
+			RegisterFunction("mod", new ModulusFunctionTemplate(true));
 			RegisterFunction("radians", new StandardSQLFunction("radians", NHibernateUtil.Double));
 			RegisterFunction("rand", new NoArgSQLFunction("rand", NHibernateUtil.Double));
 			RegisterFunction("sin", new StandardSQLFunction("sin", NHibernateUtil.Double));
@@ -346,7 +347,7 @@ namespace NHibernate.Dialect
 			RegisterFunction("ltrim", new StandardSQLFunction("ltrim"));
 
 			RegisterFunction("trim", new AnsiTrimEmulationFunction());
-			RegisterFunction("iif", new SQLFunctionTemplate(null, "case when ?1 then ?2 else ?3 end"));
+			RegisterFunction("iif", new IifSQLFunction());
 			RegisterFunction("replace", new StandardSafeSQLFunction("replace", NHibernateUtil.String, 3));
 
 			// Casting to CHAR (without specified length) truncates to 30 characters. 
@@ -700,11 +701,15 @@ namespace NHibernate.Dialect
 		{
 			public CountBigQueryFunction() : base("count_big", true) { }
 
+			// Since v5.3
+			[Obsolete("Use GetReturnType method instead.")]
 			public override IType ReturnType(IType columnType, IMapping mapping)
 			{
 				return NHibernateUtil.Int64;
 			}
 		}
+
+		
 
 		public override bool SupportsCircularCascadeDeleteConstraints
 		{

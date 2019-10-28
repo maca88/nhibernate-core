@@ -6,6 +6,7 @@ using NHibernate.Driver;
 using NHibernate.Exceptions;
 using NHibernate.Proxy;
 using NUnit.Framework;
+using static NHibernate.Linq.ExpressionEvaluation;
 
 namespace NHibernate.Test.Linq
 {
@@ -637,6 +638,201 @@ namespace NHibernate.Test.Linq
 		}
 
 		[Test]
+		public void CanSelectModulus()
+		{
+			if (!TestDialect.SendsParameterValuesAsStrings)
+			{
+				var list = db.Animals.Select(a => new { Sql = a.Id % 2.1f, a.Id }).ToList();
+				Assert.That(list.Select(o => o.Sql), Is.EqualTo(list.Select(o => o.Id % 2.1f)));
+				var list1 = db.Animals.Select(a => new { Sql = a.Id % 2.1d, a.Id }).ToList();
+				Assert.That(list1.Select(o => o.Sql), Is.EqualTo(list1.Select(o => o.Id % 2.1d)));
+				var list2 = db.Animals.Select(a => new { Sql = a.BodyWeight % 2.1f, a.BodyWeight }).ToList();
+				Assert.That(list2.Select(o => o.Sql), Is.EqualTo(list2.Select(o => o.BodyWeight % 2.1f)));
+			}
+
+			var list3 = db.Animals.Select(a => new { Sql = a.Id % 2.1m, a.Id }).ToList();
+			Assert.That(list3.Select(o => o.Sql), Is.EqualTo(list3.Select(o => o.Id % 2.1m)));
+			var list4 = db.Animals.Select(a => new { Sql = a.Id % 2, a.Id }).ToList();
+			Assert.That(list4.Select(o => o.Sql), Is.EqualTo(list4.Select(o => o.Id % 2)));
+			var list5 = db.Animals.Select(a => new { Sql = a.Id % 2L, a.Id }).ToList();
+			Assert.That(list5.Select(o => o.Sql), Is.EqualTo(list5.Select(o => o.Id % 2L)));
+			var list7 = db.Animals.Select(a => new { Sql = a.BodyWeight % 2, a.BodyWeight }).ToList();
+			Assert.That(list7.Select(o => o.Sql), Is.EqualTo(list7.Select(o => o.BodyWeight % 2)));
+			var list8 = db.Animals.Select(a => new { Sql = a.BodyWeight % 2L, a.BodyWeight }).ToList();
+			Assert.That(list8.Select(o => o.Sql), Is.EqualTo(list8.Select(o => o.BodyWeight % 2L)));
+			var list9 = db.Products.Select(a => new { Sql = a.UnitPrice % 2L, a.UnitPrice }).ToList();
+			Assert.That(list9.Select(o => o.Sql), Is.EqualTo(list9.Select(o => o.UnitPrice % 2L)));
+			var list10 = db.Products.Select(a => new { Sql = a.UnitPrice % 2, a.UnitPrice }).ToList();
+			Assert.That(list10.Select(o => o.Sql), Is.EqualTo(list10.Select(o => o.UnitPrice % 2)));
+		}
+
+		[Test]
+		public void CanSelectModulusSameExpression()
+		{
+			var list1 = db.Animals.Select(a => new ObjectDto { CalculatedValue = a.Id % 2.1m, OriginalValue = a.Id }).ToList();
+			Assert.That(list1.Select(o => o.CalculatedValue), Is.EqualTo(list1.Select(o => o.OriginalValue % 2.1m)));
+			var list2 = db.Animals.Select(a => new ObjectDto { CalculatedValue = a.Id % 2L, OriginalValue = a.Id }).ToList();
+			Assert.That(list2.Select(o => o.CalculatedValue), Is.EqualTo(list2.Select(o => o.OriginalValue % 2L)));
+
+			if (!TestDialect.SendsParameterValuesAsStrings)
+			{
+				var list3 = db.Animals.Select(a => new ObjectDto { CalculatedValue = a.Id % 2.1f, OriginalValue = a.Id }).ToList();
+				Assert.That(list3.Select(o => o.CalculatedValue), Is.EqualTo(list3.Select(o => o.OriginalValue % 2.1f)));
+				var list4 = db.Animals.Select(a => new ObjectDto { CalculatedValue = a.Id % 2.1d, OriginalValue = a.Id }).ToList();
+				Assert.That(list4.Select(o => o.CalculatedValue), Is.EqualTo(list4.Select(o => o.OriginalValue % 2.1d)));
+			}
+		}
+
+		[Test]
+		public void CanForceDatabaseEvaluation()
+		{
+			var namedParameters = !(Sfi.ConnectionProvider.Driver is OdbcDriver);
+			Assert.That(GetSqlSelect(db.Animals.Select(a => DatabaseEval(() => 5))), Does.Contain(namedParameters ? "p0" : "?"));
+			Assert.That(GetSqlSelect(db.Products.Select(a => DatabaseEval(() => a.UnitPrice * 1234.4321m))), Does.Contain("*"));
+			Assert.That(FindAllOccurrences(GetSqlSelect(db.Products.Select(a => new
+			{
+				Server = DatabaseEval(() => a.UnitPrice * 1234.4321m),
+				Default = a.UnitPrice * 1234.4321m
+			})), "*"), Is.EqualTo(1));
+		}
+
+		[Test]
+		public void CanForceClientEvaluation()
+		{
+			var query = db.Animals.Select(a => ClientEval(() => a.Id + 5));
+			Assert.That(GetSqlSelect(query), Does.Not.Contain("+"));
+			Assert.That(query.ToList(), Is.EqualTo(db.Animals.Select(a => a.Id + 5).ToList()));
+
+			query = db.Animals.Select(a => ClientEval(() => a.SerialNumber.Length));
+			Assert.That(GetSqlSelect(query), Does.Not.Contain("len(").And.Not.Contain("length("));
+			Assert.That(query.ToList(), Is.EqualTo(db.Animals.Select(a => a.SerialNumber.Length).ToList()));
+
+			var query2 = db.Animals.Select(a => ClientEval(() => a.SerialNumber.Substring(0, 1)));
+			Assert.That(GetSqlSelect(query2), Does.Not.Contain("substr(").And.Not.Contain("substring("));
+			Assert.That(query2.ToList(), Is.EqualTo(db.Animals.Select(a => a.SerialNumber.Substring(0, 1)).ToList()));
+
+			query2 = db.Animals.Select(a => ClientEval(() => a.Id % 2 == 0 ? a.SerialNumber : a.Description));
+			Assert.That(GetSqlSelect(query2), Does.Not.Contain("case"));
+			Assert.That(query2.ToList(), Is.EqualTo(db.Animals.Select(a => a.Id % 2 == 0 ? a.SerialNumber : a.Description).ToList()));
+
+			var query3 = db.Animals.Select(a => new
+			{
+				Client = ClientEval(() => a.Id % 2 == 0 ? a.SerialNumber.Substring(0, 1) : a.Description),
+				Server = a.Id % 2 == 0 ? a.SerialNumber.Substring(0, 1) : a.Description,
+			}).ToList();
+			Assert.That(query3.Select(o => o.Client), Is.EqualTo(query3.Select(o => o.Server)));
+		}
+
+		[Test]
+		public void CanSelectMultiplyOperator()
+		{
+			if (TestDialect.SendsParameterValuesAsStrings)
+			{
+				Assert.Ignore("Ignore due to driver double and float parameters issue");
+			}
+
+			var list1 = db.Animals.Select(a => new { Sql = a.Id * 5, a.Id }).ToList();
+			Assert.That(list1.Select(o => o.Sql), Is.EqualTo(list1.Select(o => o.Id * 5)));
+			var list2 = db.Animals.Select(a => new { Sql = a.Id * 12345.54321m, a.Id }).ToList();
+			Assert.That(list2.Select(o => o.Sql), Is.EqualTo(list2.Select(o => o.Id * 12345.54321m)));
+			var list3 = db.Animals.Select(a => new { Sql = a.Id * 12345.54321f, a.Id }).ToList();
+			Assert.That(list3.Select(o => o.Sql), Is.EqualTo(list3.Select(o => o.Id * 12345.54321f)));
+			var list4 = db.Animals.Select(a => new { Sql = a.Id * 12345.54321d, a.Id }).ToList();
+			Assert.That(list4.Select(o => o.Sql), Is.EqualTo(list4.Select(o => o.Id * 12345.54321d)));
+			var list5 = db.Animals.Select(a => new { Sql = a.Id * 2L, a.Id }).ToList();
+			Assert.That(list5.Select(o => o.Sql), Is.EqualTo(list5.Select(o => o.Id * 2L)));
+
+			var list6 = db.Products.Select(a => new { Sql = a.UnitPrice * 12345.54321m, a.UnitPrice }).ToList();
+			Assert.That(list6.Select(o => o.Sql), Is.EqualTo(list6.Select(o => o.UnitPrice * 12345.54321m)));
+			var list7 = db.Products.Select(a => new { Sql = a.UnitPrice * 12345L, a.UnitPrice }).ToList();
+			Assert.That(list7.Select(o => o.Sql), Is.EqualTo(list7.Select(o => o.UnitPrice * 12345L)));
+
+			var list8 = db.Animals.Select(a => new { Sql = a.BodyWeight * 12345.54321f, a.BodyWeight }).ToList();
+			Assert.That(list8.Select(o => o.Sql), Is.EqualTo(list8.Select(o => o.BodyWeight * 12345.54321f)));
+		}
+
+		[Test]
+		public void CanSelectDivideOperator()
+		{
+			if (TestDialect.SendsParameterValuesAsStrings)
+			{
+				Assert.Ignore("Ignore due to driver double and float parameters issue");
+			}
+
+			var list1 = db.Animals.Select(a => new { Sql = a.Id / 5, a.Id }).ToList();
+			Assert.That(list1.Select(o => o.Sql), Is.EqualTo(list1.Select(o => o.Id / 5)));
+			var list2 = db.Animals.Select(a => new { Sql = a.Id / 12345.54321m, a.Id }).ToList();
+			Assert.That(list2.Select(o => o.Sql), Is.EqualTo(list2.Select(o => o.Id / 12345.54321m)));
+			var list3 = db.Animals.Select(a => new { Sql = a.Id / 12345.54321f, a.Id }).ToList();
+			Assert.That(list3.Select(o => o.Sql), Is.EqualTo(list3.Select(o => o.Id / 12345.54321f)));
+			var list4 = db.Animals.Select(a => new { Sql = a.Id / 12345.54321d, a.Id }).ToList();
+			Assert.That(list4.Select(o => o.Sql), Is.EqualTo(list4.Select(o => o.Id / 12345.54321d)));
+			var list5 = db.Animals.Select(a => new { Sql = a.Id / 2L, a.Id }).ToList();
+			Assert.That(list5.Select(o => o.Sql), Is.EqualTo(list5.Select(o => o.Id / 2L)));
+
+			var list6 = db.Products.Select(a => new { Sql = a.UnitPrice / 12345.54321m, a.UnitPrice }).ToList();
+			Assert.That(list6.Select(o => o.Sql), Is.EqualTo(list6.Select(o => o.UnitPrice / 12345.54321m)));
+			var list7 = db.Products.Select(a => new { Sql = a.UnitPrice.Value / 12345L, a.UnitPrice }).ToList();
+			Assert.That(list7.Select(o => o.Sql), Is.EqualTo(list7.Select(o => o.UnitPrice / 12345L)));
+
+			var list8 = db.Animals.Select(a => new { Sql = a.BodyWeight / 12345.54321f, a.BodyWeight }).ToList();
+			Assert.That(list8.Select(o => o.Sql), Is.EqualTo(list8.Select(o => o.BodyWeight / 12345.54321f)));
+		}
+
+		[Test]
+		public void CanSelectAddOperator()
+		{
+			var list1 = db.Animals.Select(a => new { Sql = a.Id + 5, a.Id }).ToList();
+			Assert.That(list1.Select(o => o.Sql), Is.EqualTo(list1.Select(o => o.Id + 5)));
+			var list2 = db.Animals.Select(a => new { Sql = a.Id + 12345.54321m, a.Id }).ToList();
+			Assert.That(list2.Select(o => o.Sql), Is.EqualTo(list2.Select(o => o.Id + 12345.54321m)));
+			var list3 = db.Animals.Select(a => new { Sql = a.Id + 12345.54321f, a.Id }).ToList();
+			Assert.That(list3.Select(o => o.Sql), Is.EqualTo(list3.Select(o => o.Id + 12345.54321f)));
+			var list4 = db.Animals.Select(a => new { Sql = a.Id + 12345.54321d, a.Id }).ToList();
+			Assert.That(list4.Select(o => o.Sql), Is.EqualTo(list4.Select(o => o.Id + 12345.54321d)));
+			var list5 = db.Animals.Select(a => new { Sql = a.Id + 2L, a.Id }).ToList();
+			Assert.That(list5.Select(o => o.Sql), Is.EqualTo(list5.Select(o => o.Id + 2L)));
+
+			var list6 = db.Products.Select(a => new { Sql = a.UnitPrice + 12345.54321m, a.UnitPrice }).ToList();
+			Assert.That(list6.Select(o => o.Sql), Is.EqualTo(list6.Select(o => o.UnitPrice + 12345.54321m)));
+			var list7 = db.Products.Select(a => new { Sql = a.UnitPrice + 12345L, a.UnitPrice }).ToList();
+			Assert.That(list7.Select(o => o.Sql), Is.EqualTo(list7.Select(o => o.UnitPrice + 12345L)));
+
+			var list8 = db.Animals.Select(a => new { Sql = a.BodyWeight + 12345.54321f, a.BodyWeight }).ToList();
+			Assert.That(list8.Select(o => o.Sql), Is.EqualTo(list8.Select(o => o.BodyWeight + 12345.54321f)));
+		}
+
+		[Test]
+		public void CanSelectSubtractOperator()
+		{
+			var list1 = db.Animals.Select(a => new { Sql = a.Id - 5, a.Id }).ToList();
+			Assert.That(list1.Select(o => o.Sql), Is.EqualTo(list1.Select(o => o.Id - 5)));
+			var list2 = db.Animals.Select(a => new { Sql = a.Id - 12345.54321m, a.Id }).ToList();
+			Assert.That(list2.Select(o => o.Sql), Is.EqualTo(list2.Select(o => o.Id - 12345.54321m)));
+			var list3 = db.Animals.Select(a => new { Sql = a.Id - 12345.54321f, a.Id }).ToList();
+			Assert.That(list3.Select(o => o.Sql), Is.EqualTo(list3.Select(o => o.Id - 12345.54321f)));
+			var list4 = db.Animals.Select(a => new { Sql = a.Id - 12345.54321d, a.Id }).ToList();
+			Assert.That(list4.Select(o => o.Sql), Is.EqualTo(list4.Select(o => o.Id - 12345.54321d)));
+			var list5 = db.Animals.Select(a => new { Sql = a.Id - 2L, a.Id }).ToList();
+			Assert.That(list5.Select(o => o.Sql), Is.EqualTo(list5.Select(o => o.Id - 2L)));
+
+			var list6 = db.Products.Select(a => new { Sql = a.UnitPrice - 12345.54321m, a.UnitPrice }).ToList();
+			Assert.That(list6.Select(o => o.Sql), Is.EqualTo(list6.Select(o => o.UnitPrice - 12345.54321m)));
+			var list7 = db.Products.Select(a => new { Sql = a.UnitPrice - 12345L, a.UnitPrice }).ToList();
+			Assert.That(list7.Select(o => o.Sql), Is.EqualTo(list7.Select(o => o.UnitPrice - 12345L)));
+
+			var list8 = db.Animals.Select(a => new { Sql = a.BodyWeight - 12345.54321f, a.BodyWeight }).ToList();
+			Assert.That(list8.Select(o => o.Sql), Is.EqualTo(list8.Select(o => o.BodyWeight - 12345.54321f)));
+		}
+
+		private class ObjectDto
+		{
+			public object CalculatedValue { get; set; }
+
+			public int OriginalValue { get; set; }
+		}
+
+		[Test]
 		public void CanSelectConditionalEntityValueWithEntityComparisonComplex()
 		{
 			var animal = db.Animals.Select(
@@ -665,17 +861,334 @@ namespace NHibernate.Test.Linq
 		public void CanSelectConditionalEntityValueWithEntityCast()
 		{
 			var list = db.Animals.Select(
-				               a => new
-				               {
-					               BodyWeight = (double?) (a is Cat 
-						               ? (a.Father ?? a.Mother).BodyWeight
+							   a => new
+							   {
+								   BodyWeight = (double?) (a is Cat
+									   ? (a.Father ?? a.Mother).BodyWeight
 										: (a is Dog
 											? (a.Mother ?? a.Father).BodyWeight
 											: (a.Father.Father.BodyWeight)
-						               ))
-				               })
-			               .ToList();
+									   ))
+							   })
+						   .ToList();
 			Assert.That(list, Has.Exactly(1).With.Property("BodyWeight").Not.Null);
+		}
+
+		[Test]
+		public void CanSelectBinaryClientSideTest()
+		{
+			var exception = Assert.Throws<GenericADOException>(() =>
+			{
+				db.Animals.Select(a => a.FatherOrMother.BodyWeight + a.BodyWeight).ToList();
+			});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Double'. Cast expression '([a].FatherOrMother.BodyWeight + [a].BodyWeight)' to 'System.Nullable`1[System.Double]'."));
+
+			var list = db.Animals.Select(a => (double?) (a.FatherOrMother.BodyWeight + a.BodyWeight)).ToList();
+			Assert.That(list, Has.Exactly(5).Null.And.Exactly(1).EqualTo(271d));
+
+			// Arithmetic operator
+			var list2 = db.Animals.Select(a => new
+			{
+				// Left side null
+				Client = (double?) (a.FatherOrMother.BodyWeight + a.BodyWeight + a.Father.BodyWeight),
+				Server = (double?) (a.Father ?? a.Mother).BodyWeight + a.BodyWeight + a.Father.BodyWeight,
+				// Right side null
+				Client2 = (double?) (a.BodyWeight - a.Father.BodyWeight - a.FatherOrMother.BodyWeight),
+				Server2 = (double?) a.BodyWeight - a.Father.BodyWeight - (a.Father ?? a.Mother).BodyWeight
+			}).ToList();
+			Assert.That(list2.Select(o => o.Client), Is.EqualTo(list2.Select(o => o.Server)));
+			Assert.That(list2.Select(o => o.Client2), Is.EqualTo(list2.Select(o => o.Server2)));
+
+			// Boolean logic operator
+			var list3 = db.Users.Select(u => new
+			{
+				// Left side null
+				Client = u.NotMappedUser.Role.IsActive && true,
+				Server = u.Role.IsActive && true,
+				// Right side null
+				Client2 = true && u.NotMappedUser.Role.IsActive,
+				Server2 = true && u.Role.IsActive
+			}).ToList();
+			Assert.That(list3.Select(o => o.Client), Is.EqualTo(list3.Select(o => o.Server)));
+			Assert.That(list3.Select(o => o.Client2), Is.EqualTo(list3.Select(o => o.Server2)));
+
+			list3 = db.Users.Select(u => new
+			{
+				// Left side null
+				Client = u.NotMappedUser.Role.IsActive || true,
+				Server = u.Role.IsActive || true,
+				// Right side null
+				Client2 = true || u.NotMappedUser.Role.IsActive,
+				Server2 = true || u.Role.IsActive
+			}).ToList();
+			Assert.That(list3.Select(o => o.Client), Is.EqualTo(list3.Select(o => o.Server)));
+			Assert.That(list3.Select(o => o.Client2), Is.EqualTo(list3.Select(o => o.Server2)));
+
+			// Comparison operator
+			list3 = db.Users.Select(u => new
+			{
+				// Left side null
+				Client = u.NotMappedUser.Role.Id > 0,
+				Server = u.Role.Id > 0,
+				// Right side null
+				Client2 = 0 < u.NotMappedUser.Role.Id,
+				Server2 = 0 < u.Role.Id
+			}).ToList();
+			Assert.That(list3.Select(o => o.Client), Is.EqualTo(list3.Select(o => o.Server)));
+			Assert.That(list3.Select(o => o.Client2), Is.EqualTo(list3.Select(o => o.Server2)));
+
+			// Bitwise boolean operator
+			if (TestDialect.SupportsBitwiseOperatorsOnBoolean)
+			{
+				var list4 = db.Users.Select(u => new
+				{
+					// Left side null
+					Client = (bool?) (u.NotMappedUser.Role.IsActive | true),
+					Server = (bool?) (u.Role.IsActive | true),
+					// Right side null
+					Client2 = (bool?) (true | u.NotMappedUser.Role.IsActive),
+					Server2 = (bool?) (true | u.Role.IsActive)
+				}).ToList();
+				Assert.That(list4.Select(o => o.Client), Is.EqualTo(list4.Select(o => o.Server)));
+				Assert.That(list4.Select(o => o.Client2), Is.EqualTo(list4.Select(o => o.Server2)));
+			}
+
+			// Bitwise number operator
+			var list5 = db.Users.Select(u => new
+			{
+				// Left side null
+				Client = (int?) (u.NotMappedUser.Role.Id | 5),
+				Server = (int?) (u.Role.Id | 5),
+				// Right side null
+				Client2 = (int?) (5 | u.NotMappedUser.Role.Id),
+				Server2 = (int?) (5 | u.Role.Id)
+			}).ToList();
+			Assert.That(list5.Select(o => o.Client), Is.EqualTo(list5.Select(o => o.Server)));
+			Assert.That(list5.Select(o => o.Client2), Is.EqualTo(list5.Select(o => o.Server2)));
+
+			// Coalesce operator
+			var list6 = db.Users.Select(u => new
+			{
+				// Left side null
+				Client = u.NotMappedUser.Role.Name ?? u.NotMappedUser.Name,
+				Server = u.Role.Name ?? u.Name,
+				// Right side null
+				Client2 = u.NotMappedUser.Name ?? u.NotMappedUser.Role.Name,
+				Server2 = u.Name ?? u.Role.Name,
+				// Both side null
+				Client3 = u.NotMappedUser.Role.Name ?? u.NotMappedUser.Role.Name,
+				Server3 = u.Role.Name ?? u.Role.Name
+			}).ToList();
+			Assert.That(list6.Select(o => o.Client), Is.EqualTo(list6.Select(o => o.Server)));
+			Assert.That(list6.Select(o => o.Client2), Is.EqualTo(list6.Select(o => o.Server2)));
+			Assert.That(list6.Select(o => o.Client3), Is.EqualTo(list6.Select(o => o.Server3)));
+		}
+
+		[Test]
+		public void CanSelectUnaryClientSideTest()
+		{
+			var exception = Assert.Throws<GenericADOException>(() =>
+			{
+				db.Animals.Select(a => -a.FatherOrMother.BodyWeight).ToList();
+			});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Double'. Cast expression '-[a].FatherOrMother.BodyWeight' to 'System.Nullable`1[System.Double]'."));
+
+			// Negate
+			var list = db.Animals.Select(a => new
+			{
+				Client = (double?) -a.FatherOrMother.BodyWeight,
+				Server = (double?) -((a.Father ?? a.Mother).BodyWeight)
+			}).ToList();
+			Assert.That(list.Select(o => o.Client), Is.EqualTo(list.Select(o => o.Server)));
+
+			// Convert
+			list = db.Animals.Select(a => new
+			{
+				Client = (double?) a.FatherOrMother.BodyWeight,
+				Server = (double?) (a.Father ?? a.Mother).BodyWeight
+			}).ToList();
+			Assert.That(list.Select(o => o.Client), Is.EqualTo(list.Select(o => o.Server)));
+
+			// UnaryPlus
+			list = db.Animals.Select(a => new
+			{
+				Client = (double?) +a.FatherOrMother.BodyWeight,
+				Server = (double?) +((a.Father ?? a.Mother).BodyWeight)
+			}).ToList();
+			Assert.That(list.Select(o => o.Client), Is.EqualTo(list.Select(o => o.Server)));
+
+			// Not
+			var list2 = db.Users.Select(u => new
+			{
+				Client = (bool?) !u.NotMappedUser.Role.IsActive,
+				Server = (bool?) !u.Role.IsActive
+			}).ToList();
+			Assert.That(list2.Select(o => o.Client), Is.EqualTo(list2.Select(o => o.Server)));
+
+			// Convert value type
+			var list3 = db.Users.Select(u => (int?) (u.Role != null ? 5 : 10)).ToList();
+			Assert.That(list3, Has.Exactly(3).Not.Null);
+
+			// Convert enum
+			list3 = db.Users.Select(u => (int?) u.Role.CreatedBy.Enum2).ToList();
+			Assert.That(list3, Has.Exactly(3).Null);
+
+			// Convert reference type
+			var list4 = db.Animals.Select(a => new
+			{ 
+				Client = (Dog) a.FatherOrMother,
+				Server = (Dog) (a.Father ?? a.Mother)
+			}).ToList();
+			Assert.That(list4.Select(o => o.Client), Is.EqualTo(list4.Select(o => o.Server)));
+
+			// TypeAs
+			list4 = db.Animals.Select(a => new
+			{
+				Client = a.FatherOrMother as Dog,
+				Server = (a.Father ?? a.Mother) as Dog
+			}).ToList();
+			Assert.That(list4.Select(o => o.Client), Is.EqualTo(list4.Select(o => o.Server)));
+
+			// Convert constant reference type
+			var list5 = db.Animals.Select(a => (Animal) new Dog()).ToList();
+			Assert.That(list5, Has.Exactly(6).Not.Null);
+		}
+
+		[Test]
+		public void CanSelectConditionalClientSideWithNullValueTypeTest()
+		{
+			var exception = Assert.Throws<GenericADOException>(() =>
+			{
+				db.Animals.Select(
+							   a => new
+							   {
+								   BodyWeight = (string.IsNullOrWhiteSpace(a.Description)
+										? a.Mother.Mother.BodyWeight
+										: a.Father.Mother.BodyWeight)
+							   })
+						   .ToList();
+			});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Double'. " +
+				"Cast expression 'IIF(IsNullOrWhiteSpace([a].Description), [_3].BodyWeight, [_1].BodyWeight)' to 'System.Nullable`1[System.Double]'."));
+
+			var list = db.Animals.Select(
+							   a => new
+							   {
+								   BodyWeight = (double?) (string.IsNullOrWhiteSpace(a.Description)
+										? a.Mother.Mother.BodyWeight
+										: a.Father.Mother.BodyWeight)
+							   })
+						   .ToList();
+			Assert.That(list, Has.Exactly(0).With.Property("BodyWeight").Not.Null);
+
+			var list2 = db.Animals.Select(
+							   a => new
+							   {
+								   BodyWeight = (double?) (string.IsNullOrWhiteSpace(a.Description)
+										? a.Mother.Mother.BodyWeight
+										: 5d)
+							   })
+						   .ToList();
+			Assert.That(list2, Has.Exactly(0).With.Property("BodyWeight").Not.Null);
+
+			var list3 = db.Animals.Select(
+							   a => new
+							   {
+								   BodyWeight = (double?) (string.IsNullOrWhiteSpace(a.Description)
+										? 5d
+										: a.Father.Mother.BodyWeight)
+							   })
+						   .ToList();
+			Assert.That(list3, Has.Exactly(6).With.Property("BodyWeight").Not.Null);
+
+			var list4 = db.Animals.Select(
+							   a => new
+							   {
+								   BodyWeightHashCode = (int?) ((string.IsNullOrWhiteSpace(a.Description)
+										? a.Mother.Mother.BodyWeight
+										: a.Father.Mother.BodyWeight)).GetHashCode()
+							   })
+						   .ToList();
+			Assert.That(list4, Has.Exactly(0).With.Property("BodyWeightHashCode").Not.Null);
+
+			var list5 = db.Animals.Select(
+							   a => new
+							   {
+								   BodyWeight = (double?) (string.IsNullOrWhiteSpace(a.Description)
+										? (string.IsNullOrWhiteSpace(a.Description)
+											? a.Mother.Mother.BodyWeight
+											: a.Father.Mother.BodyWeight)
+										: (string.IsNullOrWhiteSpace(a.Description)
+											? a.Mother.Mother.BodyWeight
+											: a.Father.Mother.BodyWeight))
+							   })
+						   .ToList();
+			Assert.That(list5, Has.Exactly(0).With.Property("BodyWeight").Not.Null);
+
+			var list6 = db.Animals.Select(
+							   a => new
+							   {
+								   Client =  a.Father.HasFather ? (double?) null : a.BodyWeight,
+								   Server = a.Father.Father != null ? (double?) null : a.BodyWeight,
+							   })
+						   .ToList();
+			Assert.That(list6.Select(o => o.Client), Is.EqualTo(list6.Select(o => o.Server)));
+
+			var list7 = db.Users.Select(
+							   a => new
+							   {
+								   Client = a.NotMappedUser.Role.IsActive ? 1 : 2,
+								   Server = a.Role.IsActive ? 1 : 2
+							   })
+						   .ToList();
+			Assert.That(list7.Select(o => o.Client), Is.EqualTo(list7.Select(o => o.Server)));
+		}
+
+		[Test]
+		public void CanExecuteMethodWithNullObjectClientSideTest()
+		{
+			var exception = Assert.Throws<GenericADOException>(() =>
+			{
+				db.Animals.Select(
+							  a => new
+							  {
+								  a.Id,
+								  FatherId = a.Father.Father.Id
+							  })
+						  .ToList();
+			});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Int32'. Cast expression '[_0].Father.Id' to 'System.Nullable`1[System.Int32]'."));
+
+			exception = Assert.Throws<GenericADOException>(() =>
+			{
+				db.Animals.Select(
+							  a => new
+							  {
+								  a.Id,
+								  FatherIdHashCode = a.Father.Father.Id.GetHashCode()
+							  })
+						  .ToList();
+			});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Int32'. Cast expression '[_1].Id.GetHashCode()' to 'System.Nullable`1[System.Int32]'."));
+
+			var list = db.Animals.Select(
+							   a => new
+							   {
+								   NullableId = (int?) a.Father.Father.Id,
+								   NullableIdHashCode = (int?) a.Father.Father.Id.GetHashCode()
+							   })
+						   .ToList();
+			Assert.That(list, Has.Exactly(0).With.Property("NullableId").Not.Null);
 		}
 
 		[Test]
@@ -726,10 +1239,10 @@ namespace NHibernate.Test.Linq
 				u.Component.Property2,
 				u.Component.Property3
 			}).ToList();
-			Assert.That(list.Select(o => o.OtherProperty2), Is.EquivalentTo(list.Select(o => o.OtherProperty1)));
+			Assert.That(list.Select(o => o.OtherProperty2), Is.EqualTo(list.Select(o => o.OtherProperty1)));
 			Assert.That(
 				list.Select(o => (o.Property1 ?? o.Property2) == null ? null : $"{o.Property1}{o.Property2}"),
-				Is.EquivalentTo(list.Select(o => o.Property3)));
+				Is.EqualTo(list.Select(o => o.Property3)));
 		}
 
 		[Test]
@@ -822,21 +1335,21 @@ namespace NHibernate.Test.Linq
 				ClientSide = string.IsNullOrEmpty(a.FatherSerialNumber) ? 1 : 0,
 				ClientSide2 = string.IsNullOrEmpty(a.Father.SerialNumber) ? 1 : 0
 			}).ToList();
-			Assert.That(list.Select(o => o.ClientSide), Is.EquivalentTo(list.Select(o => o.ClientSide2)));
+			Assert.That(list.Select(o => o.ClientSide), Is.EqualTo(list.Select(o => o.ClientSide2)));
 
 			var list2 = db.Animals.Select(a => new
 			{
 				ClientSide = a.Father.IsProxy(),
 				ClientSide2 = a.FatherSerialNumber.IsProxy()
 			}).ToList();
-			Assert.That(list2.Select(o => o.ClientSide), Is.EquivalentTo(list2.Select(o => o.ClientSide2)));
+			Assert.That(list2.Select(o => o.ClientSide), Is.EqualTo(list2.Select(o => o.ClientSide2)));
 
 			var list3 = db.Orders.Where(o => o.OrderDate.HasValue).Select(o => new
 			{
 				ClientSide = o.OrderDate.Value.TimeOfDay.Days,
 				ClientSide2 = o.OrderDate.Value
 			}).ToList();
-			Assert.That(list3.Select(o => o.ClientSide), Is.EquivalentTo(list3.Select(o => o.ClientSide2.TimeOfDay.Days)));
+			Assert.That(list3.Select(o => o.ClientSide), Is.EqualTo(list3.Select(o => o.ClientSide2.TimeOfDay.Days)));
 
 			var list4 = db.Orders.Where(o => o.OrderDate.HasValue).Select(o => new
 			{
@@ -844,7 +1357,7 @@ namespace NHibernate.Test.Linq
 				ClientSide = o.OrderDate.Value.TimeOfDay.CompareTo(new TimeSpan(o.OrderId)),
 				ClientSide2 = o.OrderDate.Value
 			}).ToList();
-			Assert.That(list4.Select(o => o.ClientSide), Is.EquivalentTo(list4.Select(o => o.ClientSide2.TimeOfDay.CompareTo(new TimeSpan(o.OrderId)))));
+			Assert.That(list4.Select(o => o.ClientSide), Is.EqualTo(list4.Select(o => o.ClientSide2.TimeOfDay.CompareTo(new TimeSpan(o.OrderId)))));
 		}
 
 		[Test]
@@ -856,7 +1369,7 @@ namespace NHibernate.Test.Linq
 					ServerSide = (int?) a.Father.SerialNumber.Length,
 					ClientSide = (int?) a.FatherSerialNumber.Length
 				}).ToList();
-			Assert.That(list.Select(o => o.ServerSide), Is.EquivalentTo(list.Select(o => o.ServerSide)));
+			Assert.That(list.Select(o => o.ClientSide), Is.EqualTo(list.Select(o => o.ServerSide)));
 
 			var list1 = db.Animals
 						 .Where(a => a.Father.SerialNumber != null)
@@ -867,13 +1380,13 @@ namespace NHibernate.Test.Linq
 								 ClientSide = a.FatherSerialNumber.Length
 							 })
 						 .ToList();
-			Assert.That(list1.Select(o => o.ClientSide), Is.EquivalentTo(list1.Select(o => o.ServerSide)));
+			Assert.That(list1.Select(o => o.ClientSide), Is.EqualTo(list1.Select(o => o.ServerSide)));
 
 			var clientSide = db.Animals.Select(a => a.FatherSerialNumber.Length.ToString()).ToList();
 			var serverSide = db.Animals.Select(a => a.FatherSerialNumber.Length.ToString()).ToList();
-			Assert.That(clientSide, Is.EquivalentTo(serverSide));
+			Assert.That(clientSide, Is.EqualTo(serverSide));
 
-			Assert.Throws<GenericADOException>(
+			var exception = Assert.Throws<GenericADOException>(
 				() =>
 				{
 					db.Animals.Select(
@@ -882,8 +1395,11 @@ namespace NHibernate.Test.Linq
 							ServerSide = a.Father.SerialNumber.Length
 						}).ToList();
 				});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Int32'. Cast expression '[_0].SerialNumber.Length' to 'System.Nullable`1[System.Int32]'."));
 
-			Assert.Throws<GenericADOException>(
+			exception = Assert.Throws<GenericADOException>(
 				() =>
 				{
 					db.Animals.Select(
@@ -892,6 +1408,9 @@ namespace NHibernate.Test.Linq
 							ClientSide = a.FatherSerialNumber.Length
 						}).ToList();
 				});
+			Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(exception.InnerException.Message, Is.EqualTo(
+				"Null value cannot be assigned to a value type 'System.Int32'. Cast expression '[a].FatherSerialNumber.Length' to 'System.Nullable`1[System.Int32]'."));
 
 			var list2 = db.Animals.Select(
 				a => new
@@ -899,7 +1418,7 @@ namespace NHibernate.Test.Linq
 					ServerSide = a.Father.SerialNumber.Length.ToString(),
 					ClientSide = a.FatherSerialNumber.Length.ToString()
 				}).ToList();
-			Assert.That(list2.Select(o => o.ClientSide), Is.EquivalentTo(list2.Select(o => o.ServerSide)));
+			Assert.That(list2.Select(o => o.ClientSide), Is.EqualTo(list2.Select(o => o.ServerSide)));
 
 			var list3 = db.Animals.Select(
 				a => new
@@ -907,7 +1426,7 @@ namespace NHibernate.Test.Linq
 					ServerSide = (int?) a.Father.SerialNumber.Substring(0, ((int?) a.Father.SerialNumber.Length - 1) ?? 0).Length,
 					ClientSide = (int?) a.FatherSerialNumber.Substring(0, ((int?) a.FatherSerialNumber.Length - 1) ?? 0).Length
 				}).ToList();
-			Assert.That(list3.Select(o => o.ClientSide), Is.EquivalentTo(list3.Select(o => o.ServerSide)));
+			Assert.That(list3.Select(o => o.ClientSide), Is.EqualTo(list3.Select(o => o.ServerSide)));
 
 			var list4 = db.Animals.Select(a => new
 			{
@@ -915,14 +1434,14 @@ namespace NHibernate.Test.Linq
 				ClientSide = a.FatherSerialNumber,
 				Test = (object) null
 			}).ToList();
-			Assert.That(list4.Select(o => o.ClientSide), Is.EquivalentTo(list4.Select(o => o.ServerSide)));
+			Assert.That(list4.Select(o => o.ClientSide), Is.EqualTo(list4.Select(o => o.ServerSide)));
 
 			var list5 = db.Animals.Select(a => new
 			{
 				ServerSide = a.Father.SerialNumber == null,
 				ClientSide = a.FatherSerialNumber == null
 			}).ToList();
-			Assert.That(list5.Select(o => o.ClientSide), Is.EquivalentTo(list5.Select(o => o.ServerSide)));
+			Assert.That(list5.Select(o => o.ClientSide), Is.EqualTo(list5.Select(o => o.ServerSide)));
 
 			var list6 = db.Animals
 						  .Where(a => a.Father.SerialNumber != null)
@@ -932,7 +1451,7 @@ namespace NHibernate.Test.Linq
 								  ServerSide = -a.Father.SerialNumber.Length,
 								  ClientSide = -a.FatherSerialNumber.Length
 							  }).ToList();
-			Assert.That(list6.Select(o => o.ClientSide), Is.EquivalentTo(list6.Select(o => o.ServerSide)));
+			Assert.That(list6.Select(o => o.ClientSide), Is.EqualTo(list6.Select(o => o.ServerSide)));
 
 			var list7 = db.Animals
 						  .Select(
@@ -941,7 +1460,7 @@ namespace NHibernate.Test.Linq
 								  ServerSide = a.Father != null ? a.Father.SerialNumber : null,
 								  ClientSide = a.HasFather ? a.FatherSerialNumber : null
 							  }).ToList();
-			Assert.That(list7.Select(o => o.ClientSide), Is.EquivalentTo(list7.Select(o => o.ServerSide)));
+			Assert.That(list7.Select(o => o.ClientSide), Is.EqualTo(list7.Select(o => o.ServerSide)));
 
 			var list8 = db.Animals
 			              .Where(a => a is Dog)
@@ -951,7 +1470,7 @@ namespace NHibernate.Test.Linq
 					              ServerSide = (long?) (int?) ((Dog) a).Father.SerialNumber.Length,
 					              ClientSide = (long?) (int?) ((Dog) a).FatherSerialNumber.Length
 				              }).ToList();
-			Assert.That(list8.Select(o => o.ClientSide), Is.EquivalentTo(list8.Select(o => o.ServerSide)));
+			Assert.That(list8.Select(o => o.ClientSide), Is.EqualTo(list8.Select(o => o.ServerSide)));
 		}
 
 		public class Wrapper<T>
@@ -967,6 +1486,18 @@ namespace NHibernate.Test.Linq
 				// Execute query
 				foreach (var item in query) { }
 				Assert.That(FindAllOccurrences(sqlLog.GetWholeLog(), "as col"), Is.EqualTo(1));
+			}
+		}
+
+		private static string GetSqlSelect(IQueryable query)
+		{
+			using (var sqlLog = new SqlLogSpy())
+			{
+				// Execute query
+				foreach (var item in query) { }
+
+				var sql = sqlLog.GetWholeLog();
+				return sql.Substring(0, sql.IndexOf(" from"));
 			}
 		}
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using NHibernate.Engine;
 using NHibernate.SqlCommand;
 using NHibernate.Type;
@@ -32,7 +33,7 @@ namespace NHibernate.Dialect.Function
 	/// Treats bitwise operations as native operations.
 	/// </summary>
 	[Serializable]
-	public class BitwiseNativeOperation : ISQLFunction
+	public class BitwiseNativeOperation : ISQLFunction, ISQLFunctionExtended
 	{
 		private readonly string _sqlOpToken;
 		private readonly bool _isUnary;
@@ -65,10 +66,21 @@ namespace NHibernate.Dialect.Function
 		#region ISQLFunction Members
 
 		/// <inheritdoc />
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public IType ReturnType(IType columnType, IMapping mapping)
 		{
-			return NHibernateUtil.Int64;
+			return DefaultReturnType;
 		}
+
+		/// <inheritdoc />
+		public IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			return DefaultReturnType;
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => NHibernateUtil.Int64;
 
 		/// <inheritdoc />
 		public bool HasArguments => true;

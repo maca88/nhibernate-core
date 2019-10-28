@@ -8,6 +8,7 @@ using NHibernate.Hql.Ast.ANTLR.Tree;
 using NHibernate.Linq.Visitors;
 using NHibernate.Param;
 using NHibernate.Type;
+using Remotion.Linq;
 
 namespace NHibernate.Linq
 {
@@ -32,6 +33,8 @@ namespace NHibernate.Linq
 
 		public ExpressionToHqlTranslationResults ExpressionToHqlTranslationResults { get; private set; }
 
+		internal IDictionary<string, NamedParameter> NamedParameters { get; }
+
 		protected virtual QueryMode QueryMode => QueryMode.Select;
 
 		private readonly Expression _expression;
@@ -47,13 +50,10 @@ namespace NHibernate.Linq
 			// referenced from the main query.
 			LinqLogging.LogExpression("Expression (partially evaluated)", _expression);
 
-			_constantToParameterMap = ExpressionParameterVisitor.Visit(ref _expression, sessionFactory);
-
+			Key = ExpressionKeyVisitor.Visit(_expression, sessionFactory, out _constantToParameterMap);
+			NamedParameters = _constantToParameterMap.Values.ToDictionary(p => p.Name);
 			ParameterValuesByName = _constantToParameterMap.Values.ToDictionary(p => p.Name,
 																				p => System.Tuple.Create(p.Value, p.Type));
-
-			Key = ExpressionKeyVisitor.Visit(_expression, _constantToParameterMap);
-
 			Type = _expression.Type;
 
 			// Note - re-linq handles return types via the GetOutputDataInfo method, and allows for SingleOrDefault here for the ChoiceResultOperator...
@@ -80,8 +80,14 @@ namespace NHibernate.Linq
 			var queryModel = NhRelinqQueryParser.Parse(_expression);
 			var visitorParameters = new VisitorParameters(sessionFactory, _constantToParameterMap, requiredHqlParameters,
 				new QuerySourceNamer(), TargetType, QueryMode);
+			QueryModelRewriter.Rewrite(queryModel, visitorParameters);
 
-			ExpressionToHqlTranslationResults = QueryModelVisitor.GenerateHqlQuery(queryModel, visitorParameters, true, ReturnType);
+			SetParameterTypes(sessionFactory, _constantToParameterMap, queryModel);
+			ExpressionToHqlTranslationResults = QueryModelVisitor.GenerateHqlQuery(
+				queryModel,
+				visitorParameters,
+				true,
+				ReturnType);
 
 			if (ExpressionToHqlTranslationResults.ExecuteResultTypeOverride != null)
 				Type = ExpressionToHqlTranslationResults.ExecuteResultTypeOverride;
@@ -98,6 +104,26 @@ namespace NHibernate.Linq
 
 			// The ast node may be altered by caller, duplicate it for preserving the original one.
 			return DuplicateTree(ExpressionToHqlTranslationResults.Statement.AstNode);
+		}
+
+		private static void SetParameterTypes(
+			ISessionFactoryImplementor sessionFactory,
+			IDictionary<ConstantExpression, NamedParameter> constantToParameterMap,
+			QueryModel queryModel)
+		{
+			if (constantToParameterMap.Count == 0)
+			{
+				return;
+			}
+
+			var constantTypes = ConstantTypeLocator.GetTypes(queryModel, sessionFactory);
+			foreach (var pair in constantTypes)
+			{
+				if (constantToParameterMap.TryGetValue(pair.Key, out var parameter))
+				{
+					parameter.Type = pair.Value;
+				}
+			}
 		}
 
 		internal void CopyExpressionTranslation(NhLinqExpression other)

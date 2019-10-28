@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using NHibernate.Engine;
 using NHibernate.Linq.Clauses;
 using NHibernate.Linq.ReWriters;
 using Remotion.Linq.Clauses;
@@ -62,6 +63,7 @@ namespace NHibernate.Linq.Visitors
 		// TODO: There are a number of types of expressions that we didn't handle here due to time constraints.  For example, the ?: operator could be checked easily.
 		private readonly IIsEntityDecider _isEntityDecider;
 		private readonly IJoiner _joiner;
+		private readonly ISessionFactoryImplementor _sessionFactory;
 
 		private readonly Stack<bool> _handled = new Stack<bool>();
 		
@@ -71,10 +73,11 @@ namespace NHibernate.Linq.Visitors
 		// The following is used for member expressions traversal.
 		private int _memberExpressionDepth;
 
-		internal WhereJoinDetector(IIsEntityDecider isEntityDecider, IJoiner joiner)
+		internal WhereJoinDetector(IIsEntityDecider isEntityDecider, IJoiner joiner, ISessionFactoryImplementor sessionFactory)
 		{
 			_isEntityDecider = isEntityDecider;
 			_joiner = joiner;
+			_sessionFactory = sessionFactory;
 		}
 
 		public void Transform(IClause whereClause)
@@ -296,8 +299,7 @@ namespace NHibernate.Linq.Visitors
 			// I'm not sure what processing re-linq does to strange member expressions.
 			// TODO: I suspect this code doesn't add the right joins for the last case.
 
-			var isIdentifier = _isEntityDecider.IsIdentifier(expression.Expression.Type, expression.Member.Name);
-
+			var isEntity = _isEntityDecider.IsEntity(expression, out var isIdentifier);
 			if (!isIdentifier)
 				_memberExpressionDepth++;
 
@@ -307,11 +309,11 @@ namespace NHibernate.Linq.Visitors
 				_memberExpressionDepth--;
 
 			ExpressionValues values = _values.Pop().Operation(pvs => pvs.MemberAccess(expression.Type));
-			if (_isEntityDecider.IsEntity(expression.Type))
+			if (isEntity)
 			{
 				// Don't add joins for things like a.B == a.C where B and C are entities.
 				// We only need to join B when there's something like a.B.D.
-				var key = ExpressionKeyVisitor.Visit(expression, null);
+				var key = ExpressionKeyVisitor.Visit(expression, _sessionFactory, out _);
 				if (_memberExpressionDepth > 0 &&
 					_joiner.CanAddJoin(expression))
 				{

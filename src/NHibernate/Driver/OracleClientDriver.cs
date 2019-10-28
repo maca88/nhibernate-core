@@ -45,7 +45,17 @@ namespace NHibernate.Driver
 				base.InitializeParameter(dbParam, name, GuidSqlType);
 			}
 			else
-			{
+			{/*
+				if (sqlType.DbType == DbType.Double)
+				{
+					dbParam.Size = 8;
+				}
+
+				if (sqlType.DbType == DbType.Single)
+				{
+					dbParam.Size = 4;
+				}*/
+
 				base.InitializeParameter(dbParam, name, sqlType);
 			}
 		}

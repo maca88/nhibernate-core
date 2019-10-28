@@ -44,11 +44,17 @@ namespace NHibernate.DomainModel.Northwind.Entities
 
 		public virtual Role Role { get; set; }
 
-        public virtual FeatureSet Features { get; set; }
+		public virtual User NotMappedUser => this;
+
+		public virtual FeatureSet Features { get; set; }
 
 		public virtual EnumStoredAsString Enum1 { get; set; }
 
+		public virtual EnumStoredAsString? NullableEnum1 { get; set; }
+
 		public virtual EnumStoredAsInt32 Enum2 { get; set; }
+
+		public virtual EnumStoredAsInt32? NullableEnum2 { get; set; }
 
 		public User() { }
 

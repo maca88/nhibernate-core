@@ -48,6 +48,7 @@ namespace NHibernate.Type
 		public override void Set(DbCommand cmd, object value, int index, ISessionImplementor session)
 		{
 			cmd.Parameters[index].Value = Convert.ToChar(value);
+			cmd.Parameters[index].Size = SqlType.Length;
 		}
 
 		public override string ObjectToSQLString(object value, Dialect.Dialect dialect)

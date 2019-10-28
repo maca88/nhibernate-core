@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NHibernate.Engine;
 using NHibernate.SqlTypes;
 using NHibernate.Type;
@@ -10,26 +11,20 @@ namespace NHibernate.Dialect.Function
 	{
 		public AvgQueryFunctionInfo() : base("avg", false) { }
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public override IType ReturnType(IType columnType, IMapping mapping)
 		{
-			if (columnType == null)
+			return GetReturnType(new[] {columnType}, mapping, true);
+		}
+
+		public override IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			if (!TryGetArgumentType(argumentTypes, mapping, throwOnError, out _, out _))
 			{
-				throw new ArgumentNullException("columnType");
-			}
-			SqlType[] sqlTypes;
-			try
-			{
-				sqlTypes = columnType.SqlTypes(mapping);
-			}
-			catch (MappingException me)
-			{
-				throw new QueryException(me);
+				return null;
 			}
 
-			if (sqlTypes.Length != 1)
-			{
-				throw new QueryException("multi-column type can not be in avg()");
-			}
 			return NHibernateUtil.Double;
 		}
 	}

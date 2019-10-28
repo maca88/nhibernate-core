@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using NHibernate.Engine;
 using NHibernate.SqlTypes;
 using NHibernate.Type;
@@ -12,28 +14,20 @@ namespace NHibernate.Dialect.Function
 		public SumQueryFunctionInfo() : base("sum", false) { }
 
 		//H3.2 behavior
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public override IType ReturnType(IType columnType, IMapping mapping)
 		{
-			if (columnType == null)
-			{
-				throw new ArgumentNullException("columnType");
-			}
-			SqlType[] sqlTypes;
-			try
-			{
-				sqlTypes = columnType.SqlTypes(mapping);
-			}
-			catch (MappingException me)
-			{
-				throw new QueryException(me);
-			}
+			return GetReturnType(new IType[] {columnType}, mapping, true);
+		}
 
-			if (sqlTypes.Length != 1)
+		/// <inheritdoc />
+		public override IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			if (!TryGetArgumentType(argumentTypes, mapping, throwOnError, out var argumentType, out var sqlType))
 			{
-				throw new QueryException("multi-column type can not be in sum()");
+				return null;
 			}
-
-			SqlType sqlType = sqlTypes[0];
 
 			// TODO: (H3.2 for nullable types) First allow the actual type to control the return value. (the actual underlying sqltype could actually be different)
 
@@ -57,7 +51,7 @@ namespace NHibernate.Dialect.Function
 					return NHibernateUtil.UInt64;
 
 				default:
-					return columnType;
+					return argumentType;
 			}
 		}
 	}

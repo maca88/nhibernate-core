@@ -109,7 +109,7 @@ namespace NHibernate.Criterion
 		public override IType[] GetTypes(ICriteria criteria, ICriteriaQuery criteriaQuery)
 		{
 			ISQLFunction sqlFunction = GetFunction(criteriaQuery);
-			IType type = sqlFunction.ReturnType(returnType, criteriaQuery.Factory);
+			IType type = sqlFunction.GetReturnType(new[] {returnType}, criteriaQuery.Factory, true);
 			return new IType[] {type};
 		}
 

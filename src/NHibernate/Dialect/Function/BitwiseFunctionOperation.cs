@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using NHibernate.Engine;
 using NHibernate.SqlCommand;
 using NHibernate.Type;
@@ -45,10 +46,21 @@ namespace NHibernate.Dialect.Function
 		#region ISQLFunction Members
 
 		/// <inheritdoc />
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public IType ReturnType(IType columnType, IMapping mapping)
 		{
-			return NHibernateUtil.Int64;
+			return DefaultReturnType;
 		}
+
+		/// <inheritdoc />
+		public IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping)
+		{
+			return DefaultReturnType;
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => NHibernateUtil.Int64;
 
 		/// <inheritdoc />
 		public bool HasArguments => true;

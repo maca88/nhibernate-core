@@ -1,4 +1,7 @@
 using System;
+using System.Collections;
+using NHibernate.Engine;
+using NHibernate.SqlCommand;
 
 namespace NHibernate.Dialect.Function
 {
@@ -11,6 +14,12 @@ namespace NHibernate.Dialect.Function
 		protected override bool CastingIsRequired(string sqlType)
 		{
 			return false;
+		}
+
+		// Avoid checking cast type name as it may not exist
+		public override SqlString Render(IList args, ISessionFactoryImplementor factory)
+		{
+			return new SqlString("(", args[0], ")");
 		}
 	}
 }

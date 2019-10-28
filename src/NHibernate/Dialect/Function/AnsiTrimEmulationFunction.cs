@@ -17,7 +17,7 @@ namespace NHibernate.Dialect.Function
 	/// functionality.
 	/// </summary>
 	[Serializable]
-	public class AnsiTrimEmulationFunction : ISQLFunction, IFunctionGrammar
+	public class AnsiTrimEmulationFunction : ISQLFunction, ISQLFunctionExtended, IFunctionGrammar
 	{
 		private static readonly ISQLFunction LeadingSpaceTrim = new SQLFunctionTemplate(NHibernateUtil.String, "ltrim( ?1 )");
 		private static readonly ISQLFunction TrailingSpaceTrim = new SQLFunctionTemplate(NHibernateUtil.String, "rtrim( ?1 )");
@@ -76,10 +76,21 @@ namespace NHibernate.Dialect.Function
 
 		#region ISQLFunction Members
 
+		// Since v5.3
+		[Obsolete("Use GetReturnType method instead.")]
 		public IType ReturnType(IType columnType, IMapping mapping)
 		{
-			return NHibernateUtil.String;
+			return DefaultReturnType;
 		}
+
+		/// <inheritdoc />
+		public IType GetReturnType(IEnumerable<IType> argumentTypes, IMapping mapping, bool throwOnError)
+		{
+			return DefaultReturnType;
+		}
+
+		/// <inheritdoc />
+		public IType DefaultReturnType => NHibernateUtil.String;
 
 		public bool HasArguments
 		{
