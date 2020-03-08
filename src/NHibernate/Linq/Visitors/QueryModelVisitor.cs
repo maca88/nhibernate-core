@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using NHibernate.Hql.Ast;
@@ -143,6 +144,7 @@ namespace NHibernate.Linq.Visitors
 			ResultOperatorMap.Add<AsQueryableResultOperator, ProcessAsQueryable>();
 			ResultOperatorMap.Add<LockResultOperator, ProcessLock>();
 			ResultOperatorMap.Add<FetchLazyPropertiesResultOperator, ProcessFetchLazyProperties>();
+			ResultOperatorMap.Add<DefaultIfEmptyResultOperator, ProcessDefaultIfEmpty>();
 		}
 
 		private QueryModelVisitor(VisitorParameters visitorParameters, bool root, QueryModel queryModel,
@@ -346,7 +348,7 @@ namespace NHibernate.Linq.Visitors
 			HqlTreeNode hqlJoin;
 			if (joinClause.IsInner)
 			{
-				hqlJoin = _hqlTree.TreeBuilder.Join(expression, alias);
+				hqlJoin = _hqlTree.TreeBuilder.InnerJoin(expression, alias);
 			}
 			else
 			{
@@ -519,18 +521,19 @@ namespace NHibernate.Linq.Visitors
 			var equalityVisitor = new EqualityHqlGenerator(VisitorParameters);
 			var whereClause = equalityVisitor.Visit(joinClause.InnerKeySelector, joinClause.OuterKeySelector);
 			var querySourceName = VisitorParameters.QuerySourceNamer.GetName(joinClause);
+			var expression = HqlGeneratorExpressionVisitor.Visit(joinClause.InnerSequence, VisitorParameters).AsExpression();
+			var isLeftJoin = queryModel.ResultOperators.Any(o => o is DefaultIfEmptyResultOperator);
+			var join = isLeftJoin
+				? (HqlTreeNode) _hqlTree.TreeBuilder.LeftJoin(expression, _hqlTree.TreeBuilder.Alias(querySourceName))
+				: _hqlTree.TreeBuilder.InnerJoin(expression, _hqlTree.TreeBuilder.Alias(querySourceName));
+			join.AddChild(_hqlTree.TreeBuilder.With(whereClause.ToBooleanExpression()));
 
-			_hqlTree.AddWhereClause(whereClause);
-
-			_hqlTree.AddFromClause(
-				_hqlTree.TreeBuilder.Range(
-					HqlGeneratorExpressionVisitor.Visit(joinClause.InnerSequence, VisitorParameters),
-					_hqlTree.TreeBuilder.Alias(querySourceName)));
+			_hqlTree.AddFromClause(join);
 		}
 
 		public override void VisitGroupJoinClause(GroupJoinClause groupJoinClause, QueryModel queryModel, int index)
 		{
-			throw new NotImplementedException();
+			//throw new NotImplementedException();
 		}
 
 		public override void VisitNhHavingClause(NhHavingClause havingClause, QueryModel queryModel, int index)
