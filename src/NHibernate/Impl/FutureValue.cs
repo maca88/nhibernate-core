@@ -35,7 +35,7 @@ namespace NHibernate.Impl
 
 		public Delegate ExecuteOnEval { get; set; }
 
-		public IList TransformList(IList collection)
+		public IList TransformList(IList collection, object[] parameterValues)
 		{
 			if (ExecuteOnEval == null)
 				return collection;
@@ -43,7 +43,9 @@ namespace NHibernate.Impl
 			// When not null on a future value, ExecuteOnEval is fetched with PostExecuteTransformer from
 			// IntermediateHqlTree through ExpressionToHqlTranslationResults, which requires a IQueryable
 			// as input and directly yields the scalar result when the query is scalar.
-			var resultElement = (T) ExecuteOnEval.DynamicInvoke(collection.AsQueryable());
+			var resultElement = ExecuteOnEval.Method.GetParameters().Length == 1
+				? (T) ExecuteOnEval.DynamicInvoke(collection.AsQueryable())
+				: (T) ExecuteOnEval.DynamicInvoke(collection.AsQueryable(), parameterValues);
 
 			return new List<T> {resultElement};
 		}

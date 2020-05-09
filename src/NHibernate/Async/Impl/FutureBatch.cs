@@ -34,7 +34,7 @@ namespace NHibernate.Impl
 				{
 					var result = await (ListAsync(query.Query, cancellationToken)).ConfigureAwait(false);
 					if (query.Future != null)
-						result = query.Future.TransformList(result);
+						result = query.Future.TransformList(result, (query.Query as AbstractQueryImpl)?.ParameterValues);
 					queriesResults.Add(result);
 				}
 

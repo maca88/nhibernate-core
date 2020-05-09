@@ -7,24 +7,46 @@ using NHibernate.Transform;
 namespace NHibernate.Linq
 {
 	[Serializable]
-	public class ResultTransformer : IResultTransformer, IEquatable<ResultTransformer>
+	public class ResultTransformer : IResultTransformer, IEquatable<ResultTransformer>, IResultTransformerExtended
 	{
-		private readonly Func<object[], object> _itemTransformation;
-		private readonly Func<IEnumerable<object>, object> _listTransformation;
+		private readonly Func<object[], object> _itemTransformation; // TODO 6.0: Remove
+		private readonly Func<IEnumerable<object>, object> _listTransformation; // TODO 6.0: Remove
+		private readonly Func<object[], object[], object> _itemTransformationParams; // TODO 6.0: Rename to _itemTransformation
+		private readonly Func<IEnumerable<object>, object[], object> _listTransformationParams; // TODO 6.0: Rename to _listTransformation
 
+		// Since v5.3
+		[Obsolete("Use overload with Func<object[], object[], object> parameter instead.")]
 		public ResultTransformer(Func<object[], object> itemTransformation, Func<IEnumerable<object>, object> listTransformation)
 		{
 			_itemTransformation = itemTransformation;
 			_listTransformation = listTransformation;
 		}
 
+		public ResultTransformer(
+			Func<object[], object[], object> itemTransformation,
+			Func<IEnumerable<object>, object[], object> listTransformation)
+		{
+			_itemTransformationParams = itemTransformation;
+			_listTransformationParams = listTransformation;
+		}
+
 		#region IResultTransformer Members
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public object TransformTuple(object[] tuple, string[] aliases)
 		{
 			return _itemTransformation == null ? tuple : _itemTransformation(tuple);
 		}
 
+		/// <inheritdoc />
+		public object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
+		{
+			return _itemTransformationParams == null ? tuple : _itemTransformationParams(tuple, parameterValues);
+		}
+
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public IList TransformList(IList collection)
 		{
 			if (_listTransformation == null)
@@ -34,6 +56,20 @@ namespace NHibernate.Linq
 
 			var toTransform = GetToTransform(collection);
 			var transformResult = _listTransformation(toTransform);
+
+			var resultList = transformResult as IList;
+			return resultList ?? new List<object> { transformResult };
+		}
+
+		public IList TransformList(IList collection, object[] parameterValues)
+		{
+			if (_listTransformationParams == null)
+			{
+				return collection;
+			}
+
+			var toTransform = GetToTransform(collection);
+			var transformResult = _listTransformationParams(toTransform, parameterValues);
 
 			var resultList = transformResult as IList;
 			return resultList ?? new List<object> { transformResult };
@@ -64,7 +100,10 @@ namespace NHibernate.Linq
 			{
 				return true;
 			}
-			return Equals(other._listTransformation, _listTransformation) && Equals(other._itemTransformation, _itemTransformation);
+			return Equals(other._listTransformation, _listTransformation) &&
+				Equals(other._itemTransformation, _itemTransformation) &&
+				Equals(other._listTransformationParams, _listTransformationParams) &&
+				Equals(other._itemTransformationParams, _itemTransformationParams);
 		}
 
 		public override bool Equals(object obj)
@@ -78,7 +117,9 @@ namespace NHibernate.Linq
 			{
 				int lt = (_listTransformation != null ? _listTransformation.GetHashCode() : 0);
 				int it = (_itemTransformation != null ? _itemTransformation.GetHashCode() : 0);
-				return (lt*397) ^ (it*17);
+				int lt2 = (_listTransformationParams != null ? _listTransformationParams.GetHashCode() : 0);
+				int it2 = (_itemTransformationParams != null ? _itemTransformationParams.GetHashCode() : 0);
+				return (lt*397) ^ (it*17) ^ (lt2 * 397) ^ (it2 * 17);
 			}
 		}
 	}

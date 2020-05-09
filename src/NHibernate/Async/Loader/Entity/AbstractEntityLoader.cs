@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------
 
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data.Common;
@@ -63,6 +64,8 @@ namespace NHibernate.Loader.Entity
 			}
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override Task<object> GetResultColumnOrRowAsync(object[] row, IResultTransformer resultTransformer, DbDataReader rs,
 													   ISessionImplementor session, CancellationToken cancellationToken)
 		{
@@ -74,7 +77,24 @@ namespace NHibernate.Loader.Entity
 			{
 				return Task.FromResult<object>(GetResultColumnOrRow(row, resultTransformer, rs, session));
 			}
-			catch (System.Exception ex)
+			catch (Exception ex)
+			{
+				return Task.FromException<object>(ex);
+			}
+		}
+
+		protected override Task<object> GetResultColumnOrRowAsync(object[] row, QueryParameters queryParameters, DbDataReader rs,
+		                                               ISessionImplementor session, CancellationToken cancellationToken)
+		{
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromCanceled<object>(cancellationToken);
+			}
+			try
+			{
+				return Task.FromResult<object>(GetResultColumnOrRow(row, queryParameters, rs, session));
+			}
+			catch (Exception ex)
 			{
 				return Task.FromException<object>(ex);
 			}

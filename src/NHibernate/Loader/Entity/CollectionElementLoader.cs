@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data.Common;
@@ -94,7 +95,15 @@ namespace NHibernate.Loader.Entity
 			}
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override object GetResultColumnOrRow(object[] row, IResultTransformer transformer, DbDataReader rs,
+		                                               ISessionImplementor session)
+		{
+			return row[row.Length - 1];
+		}
+
+		protected override object GetResultColumnOrRow(object[] row, QueryParameters queryParameters, DbDataReader rs,
 		                                               ISessionImplementor session)
 		{
 			return row[row.Length - 1];

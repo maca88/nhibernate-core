@@ -9,7 +9,7 @@ namespace NHibernate.Transform
 	/// </summary>
 	/// @author Gail Badner
 	[Serializable]
-	public abstract class AliasedTupleSubsetResultTransformer : ITupleSubsetResultTransformer
+	public abstract class AliasedTupleSubsetResultTransformer : ITupleSubsetResultTransformer, IResultTransformerExtended
 	{
 		public abstract bool IsTransformedValueATupleElement(string[] aliases, int tupleLength);
 
@@ -36,7 +36,26 @@ namespace NHibernate.Transform
 			return includeInTransform;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public abstract object TransformTuple(object[] tuple, string[] aliases);
+
+		// TODO 6.0: Make abstract
+		/// <inheritdoc />
+		public virtual object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues) =>
+#pragma warning disable 618
+			TransformTuple(tuple, aliases);
+#pragma warning restore 618
+
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public abstract IList TransformList(IList collection);
+
+		// TODO 6.0: Make abstract
+		/// <inheritdoc />
+		public virtual IList TransformList(IList collection, object[] parameterValues) =>
+#pragma warning disable 618
+			TransformList(collection);
+#pragma warning restore 618
 	}
 }

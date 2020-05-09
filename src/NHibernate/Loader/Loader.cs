@@ -432,9 +432,10 @@ namespace NHibernate.Loader
 			}
 
 			var result = forcedResultTransformer == null
-					   ? GetResultColumnOrRow(row, queryParameters.ResultTransformer, resultSet, session)
+					   ? GetResultColumnOrRow(row, queryParameters, resultSet, session)
 					   : forcedResultTransformer.TransformTuple(GetResultRow(row, resultSet, session),
-																ResultRowAliases);
+																ResultRowAliases,
+																queryParameters.ParameterValues);
 
 			queryCacheResultBuilder?.AddRow(result, row, collections);
 
@@ -764,9 +765,19 @@ namespace NHibernate.Loader
 			return false;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		public virtual IList GetResultList(IList results, IResultTransformer resultTransformer)
 		{
 			return results;
+		}
+		
+		public virtual IList GetResultList(IList results, QueryParameters queryParameters)
+		{
+			// For avoiding breaking derived classes, call the obsolete method until it is dropped.
+#pragma warning disable 618
+			return GetResultList(results, queryParameters.ResultTransformer);
+#pragma warning restore 618
 		}
 
 		/// <summary>
@@ -785,9 +796,26 @@ namespace NHibernate.Loader
 		/// This empty implementation merely returns its first argument. This is
 		/// overridden by some subclasses.
 		/// </remarks>
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected virtual object GetResultColumnOrRow(object[] row, IResultTransformer resultTransformer, DbDataReader rs, ISessionImplementor session)
 		{
 			return row;
+		}
+
+		/// <summary>
+		/// Get the actual object that is returned in the user-visible result list.
+		/// </summary>
+		/// <remarks>
+		/// This empty implementation merely returns its first argument. This is
+		/// overridden by some subclasses.
+		/// </remarks>
+		protected virtual object GetResultColumnOrRow(object[] row, QueryParameters queryParameters, DbDataReader rs, ISessionImplementor session)
+		{
+			// For avoiding breaking derived classes, call the obsolete method until it is dropped.
+#pragma warning disable 618
+			return GetResultColumnOrRow(row, queryParameters.ResultTransformer, rs, session);
+#pragma warning restore 618
 		}
 
 		protected virtual bool[] IncludeInResultRow
@@ -1834,7 +1862,7 @@ namespace NHibernate.Loader
 
 		private IList ListIgnoreQueryCache(ISessionImplementor session, QueryParameters queryParameters)
 		{
-			return GetResultList(DoList(session, queryParameters), queryParameters.ResultTransformer);
+			return GetResultList(DoList(session, queryParameters), queryParameters);
 		}
 
 		private IList ListUsingQueryCache(ISessionImplementor session, QueryParameters queryParameters, ISet<string> querySpaces)
@@ -1858,7 +1886,7 @@ namespace NHibernate.Loader
 
 			result = TransformCacheableResults(queryParameters, key.ResultTransformer, result);
 
-			return GetResultList(result, queryParameters.ResultTransformer);
+			return GetResultList(result, queryParameters);
 		}
 
 		internal IList TransformCacheableResults(QueryParameters queryParameters, CacheableResultTransformer transformer, IList result)
@@ -1872,7 +1900,8 @@ namespace NHibernate.Loader
 						result,
 						ResultRowAliases,
 						queryParameters.ResultTransformer,
-						IncludeInResultRow)
+						IncludeInResultRow,
+						queryParameters.ParameterValues)
 					: transformer.UntransformToTuples(result)
 				);
 		}

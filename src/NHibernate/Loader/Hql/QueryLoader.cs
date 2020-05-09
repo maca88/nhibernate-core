@@ -325,6 +325,8 @@ namespace NHibernate.Loader.Hql
 			return List(session, queryParameters, _queryTranslator.QuerySpaces);
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		public override IList GetResultList(IList results, IResultTransformer resultTransformer)
 		{
 			// meant to handle dynamic instantiation queries...
@@ -353,6 +355,31 @@ namespace NHibernate.Loader.Hql
 			}
 		}
 
+		public override IList GetResultList(IList results, QueryParameters queryParameters)
+		{
+			// meant to handle dynamic instantiation queries...
+			var transformer = _selectNewTransformer ?? queryParameters.ResultTransformer;
+			var parameterValues = queryParameters.ParameterValues;
+			if (transformer == null)
+			{
+				return results;
+			}
+
+			for (var i = 0; i < results.Count; i++)
+			{
+				var row = (object[]) results[i];
+				var result = transformer.TransformTuple(row, _queryReturnAliases, parameterValues);
+				results[i] = result;
+			}
+
+			if (!HasSelectNew && queryParameters.ResultTransformer != null)
+			{
+				return queryParameters.ResultTransformer.TransformList(results, parameterValues);
+			}
+
+			return results;
+		}
+
 		protected override bool IsCollectionPersisterCacheable(ICollectionPersister collectionPersister)
 		{
 			return !_uncacheableCollectionPersisters.Contains(collectionPersister);
@@ -363,6 +390,8 @@ namespace NHibernate.Loader.Hql
 			return _selectNewTransformer ?? resultTransformer;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override object GetResultColumnOrRow(object[] row, IResultTransformer resultTransformer, DbDataReader rs,
 													   ISessionImplementor session)
 		{
@@ -372,6 +401,17 @@ namespace NHibernate.Loader.Hql
 				        ? resultRow[0]
 				        : resultRow
 			       );
+		}
+
+		protected override object GetResultColumnOrRow(object[] row, QueryParameters queryParameters, DbDataReader rs,
+													   ISessionImplementor session)
+		{
+			var resultRow = GetResultRow(row, rs, session);
+			var hasTransform = HasSelectNew || queryParameters.ResultTransformer != null;
+			return (!hasTransform && resultRow.Length == 1
+					? resultRow[0]
+					: resultRow
+				);
 		}
 
 		protected override object[] GetResultRow(object[] row, DbDataReader rs, ISessionImplementor session)
@@ -467,8 +507,18 @@ namespace NHibernate.Loader.Hql
 			var rs = GetResultSet(cmd, queryParameters, session, null);
 
 			var resultTransformer = _selectNewTransformer ?? queryParameters.ResultTransformer;
-			IEnumerable result = 
-				new EnumerableImpl(rs, cmd, session, queryParameters.IsReadOnly(session), _queryTranslator.ReturnTypes, _queryTranslator.GetColumnNames(), queryParameters.RowSelection, resultTransformer, _queryReturnAliases);
+			IEnumerable result =
+				new EnumerableImpl(
+						rs,
+						cmd,
+						session,
+						queryParameters.IsReadOnly(session),
+						_queryTranslator.ReturnTypes,
+						_queryTranslator.GetColumnNames(),
+						queryParameters.RowSelection,
+						resultTransformer,
+						_queryReturnAliases,
+						queryParameters.ParameterValues);
 
 			if (stopWatch != null)
 			{

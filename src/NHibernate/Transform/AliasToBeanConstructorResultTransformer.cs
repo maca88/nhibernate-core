@@ -5,7 +5,7 @@ using System.Reflection;
 namespace NHibernate.Transform
 {
 	[Serializable]
-	public class AliasToBeanConstructorResultTransformer : IResultTransformer
+	public class AliasToBeanConstructorResultTransformer : IResultTransformer, IResultTransformerExtended
 	{
 		private readonly ConstructorInfo constructor;
 
@@ -18,7 +18,15 @@ namespace NHibernate.Transform
 			this.constructor = constructor;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public object TransformTuple(object[] tuple, string[] aliases)
+		{
+			return TransformTuple(tuple, aliases, null);
+		}
+
+		/// <inheritdoc />
+		public object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
 		{
 			try
 			{
@@ -33,7 +41,15 @@ namespace NHibernate.Transform
 			}
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public IList TransformList(IList collection)
+		{
+			return collection;
+		}
+
+		/// <inheritdoc />
+		public IList TransformList(IList collection, object[] parameterValues)
 		{
 			return collection;
 		}

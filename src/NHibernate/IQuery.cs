@@ -3,6 +3,7 @@ using System.Collections;
 using NHibernate.Transform;
 using NHibernate.Type;
 using System.Collections.Generic;
+using NHibernate.Impl;
 
 namespace NHibernate
 {
@@ -663,5 +664,26 @@ namespace NHibernate
 		/// <typeparam name="T"></typeparam>
 		/// <returns></returns>
 		IFutureValue<T> FutureValue<T>();
+	}
+
+	internal static class QueryExtensions
+	{
+		public static object[] GetParameterValues(this IQuery query)
+		{
+			if (query is AbstractQueryImpl abstractQuery)
+			{
+				return abstractQuery.ParameterValues;
+			}
+
+			return null;
+		}
+
+		public static void SetParameterValues(this IQuery query, object[] parameterValues)
+		{
+			if (query is AbstractQueryImpl abstractQuery)
+			{
+				abstractQuery.SetParameterValues(parameterValues);
+			}
+		}
 	}
 }

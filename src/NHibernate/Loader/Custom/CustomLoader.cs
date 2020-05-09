@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
@@ -287,10 +288,18 @@ namespace NHibernate.Loader.Custom
 
 		// Not ported: scroll
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override object GetResultColumnOrRow(object[] row, IResultTransformer resultTransformer, DbDataReader rs,
 		                                               ISessionImplementor session)
 		{
 			return rowProcessor.BuildResultRow(row, rs, resultTransformer != null, session);
+		}
+
+		protected override object GetResultColumnOrRow(object[] row, QueryParameters queryParameters, DbDataReader rs,
+		                                               ISessionImplementor session)
+		{
+			return rowProcessor.BuildResultRow(row, rs, queryParameters.ResultTransformer != null, session);
 		}
 
 		protected override object[] GetResultRow(object[] row, DbDataReader rs, ISessionImplementor session)
@@ -309,7 +318,8 @@ namespace NHibernate.Loader.Custom
 		{
 			get { return includeInResultRow; }
 		}
-
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		public override IList GetResultList(IList results, IResultTransformer resultTransformer)
 		{
 			// meant to handle dynamic instantiation queries...(Copy from QueryLoader)
@@ -327,6 +337,26 @@ namespace NHibernate.Loader.Custom
 			}
 
 			return results;
+		}
+
+		public override IList GetResultList(IList results, QueryParameters queryParameters)
+		{
+			// meant to handle dynamic instantiation queries...(Copy from QueryLoader)
+			var returnAliases = ReturnAliasesForTransformer;
+			var resultTransformer = queryParameters.ResultTransformer;
+			var parameterValues = queryParameters.ParameterValues;
+			if (resultTransformer == null)
+			{
+				return results;
+			}
+
+			for (var i = 0; i < results.Count; i++)
+			{
+				var row = (object[]) results[i];
+				results[i] = resultTransformer.TransformTuple(row, returnAliases, parameterValues);
+			}
+
+			return resultTransformer.TransformList(results, parameterValues);
 		}
 
 		protected internal override void AutoDiscoverTypes(

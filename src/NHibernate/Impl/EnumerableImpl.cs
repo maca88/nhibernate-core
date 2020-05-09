@@ -43,6 +43,7 @@ namespace NHibernate.Impl
 		private IResultTransformer _resultTransformer;
 		private string[] _returnAliases;
 		private RowSelection _selection;
+		private readonly object[] _parameterValues;
 
 		/// <summary>
 		/// Create an <see cref="IEnumerable"/> wrapper over an <see cref="DbDataReader"/>.
@@ -87,6 +88,8 @@ namespace NHibernate.Impl
 		/// <remarks>
 		/// The <see cref="DbDataReader"/> should already be positioned on the first record in <see cref="RowSelection"/>.
 		/// </remarks>
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter.")]
 		public EnumerableImpl(
 			DbDataReader reader,
 			DbCommand cmd,
@@ -97,6 +100,37 @@ namespace NHibernate.Impl
 			RowSelection selection,
 			IResultTransformer resultTransformer,
 			string[] returnAliases)
+			: this (reader, cmd, session, readOnly, types, columnNames, selection, resultTransformer, returnAliases, null)
+		{
+		}
+
+		/// <summary>
+		/// Create an <see cref="IEnumerable"/> wrapper over an <see cref="DbDataReader"/>.
+		/// </summary>
+		/// <param name="reader">The <see cref="DbDataReader"/> to enumerate over.</param>
+		/// <param name="cmd">The <see cref="DbCommand"/> used to create the <see cref="DbDataReader"/>.</param>
+		/// <param name="session">The <see cref="ISession"/> to use to load objects.</param>
+		/// <param name="readOnly"></param>
+		/// <param name="types">The <see cref="IType"/>s contained in the <see cref="DbDataReader"/>.</param>
+		/// <param name="columnNames">The names of the columns in the <see cref="DbDataReader"/>.</param>
+		/// <param name="selection">The <see cref="RowSelection"/> that should be applied to the <see cref="DbDataReader"/>.</param>
+		/// <param name="resultTransformer">The <see cref="IResultTransformer"/> that should be applied to a result row or <c>null</c>.</param>
+		/// <param name="returnAliases">The aliases that correspond to a result row.</param>
+		/// <param name="parameterValues">The parameter values used by the query.</param>
+		/// <remarks>
+		/// The <see cref="DbDataReader"/> should already be positioned on the first record in <see cref="RowSelection"/>.
+		/// </remarks>
+		public EnumerableImpl(
+			DbDataReader reader,
+			DbCommand cmd,
+			IEventSource session,
+			bool readOnly,
+			IType[] types,
+			string[][] columnNames,
+			RowSelection selection,
+			IResultTransformer resultTransformer,
+			string[] returnAliases,
+			object[] parameterValues)
 		{
 			_reader = reader;
 			_cmd = cmd;
@@ -109,6 +143,7 @@ namespace NHibernate.Impl
 			_single = _types.Length == 1;
 			_resultTransformer = resultTransformer;
 			_returnAliases = returnAliases;
+			_parameterValues = parameterValues;
 		}
 
 		/// <summary>
@@ -233,14 +268,9 @@ namespace NHibernate.Impl
 							currentResults[i] = _types[i].NullSafeGet(_reader, _names[i], _session, null);
 						}
 
-						if (_resultTransformer != null)
-						{
-							_currentResult = _resultTransformer.TransformTuple(currentResults, _returnAliases);
-						}
-						else
-						{
-							_currentResult = currentResults;
-						}
+						_currentResult = _resultTransformer != null 
+							? _resultTransformer.TransformTuple(currentResults, _returnAliases, _parameterValues)
+							: currentResults;
 					}
 				}
 			}

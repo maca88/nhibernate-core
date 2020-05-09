@@ -336,7 +336,7 @@ namespace NHibernate.Multi
 			{
 				var list = queryInfo.Loader.GetResultList(
 					queryInfo.Result,
-					queryInfo.Parameters.ResultTransformer);
+					queryInfo.Parameters);
 				ArrayHelper.AddAll(results, list);
 			}
 

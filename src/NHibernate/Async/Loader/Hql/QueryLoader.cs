@@ -52,6 +52,8 @@ namespace NHibernate.Loader.Hql
 			}
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override async Task<object> GetResultColumnOrRowAsync(object[] row, IResultTransformer resultTransformer, DbDataReader rs,
 													   ISessionImplementor session, CancellationToken cancellationToken)
 		{
@@ -62,6 +64,18 @@ namespace NHibernate.Loader.Hql
 				        ? resultRow[0]
 				        : resultRow
 			       );
+		}
+
+		protected override async Task<object> GetResultColumnOrRowAsync(object[] row, QueryParameters queryParameters, DbDataReader rs,
+													   ISessionImplementor session, CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var resultRow = await (GetResultRowAsync(row, rs, session, cancellationToken)).ConfigureAwait(false);
+			var hasTransform = HasSelectNew || queryParameters.ResultTransformer != null;
+			return (!hasTransform && resultRow.Length == 1
+					? resultRow[0]
+					: resultRow
+				);
 		}
 
 		protected override async Task<object[]> GetResultRowAsync(object[] row, DbDataReader rs, ISessionImplementor session, CancellationToken cancellationToken)
@@ -105,8 +119,18 @@ namespace NHibernate.Loader.Hql
 			var rs = await (GetResultSetAsync(cmd, queryParameters, session, null, cancellationToken)).ConfigureAwait(false);
 
 			var resultTransformer = _selectNewTransformer ?? queryParameters.ResultTransformer;
-			IEnumerable result = 
-				new EnumerableImpl(rs, cmd, session, queryParameters.IsReadOnly(session), _queryTranslator.ReturnTypes, _queryTranslator.GetColumnNames(), queryParameters.RowSelection, resultTransformer, _queryReturnAliases);
+			IEnumerable result =
+				new EnumerableImpl(
+						rs,
+						cmd,
+						session,
+						queryParameters.IsReadOnly(session),
+						_queryTranslator.ReturnTypes,
+						_queryTranslator.GetColumnNames(),
+						queryParameters.RowSelection,
+						resultTransformer,
+						_queryReturnAliases,
+						queryParameters.ParameterValues);
 
 			if (stopWatch != null)
 			{

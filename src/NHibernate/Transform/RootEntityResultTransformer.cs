@@ -5,16 +5,32 @@ using NHibernate.Util;
 namespace NHibernate.Transform
 {
 	[Serializable]
-	public class RootEntityResultTransformer : IResultTransformer, ITupleSubsetResultTransformer
+	public class RootEntityResultTransformer : IResultTransformer, ITupleSubsetResultTransformer, IResultTransformerExtended
 	{
 		internal static readonly RootEntityResultTransformer Instance = new RootEntityResultTransformer();
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public object TransformTuple(object[] tuple, string[] aliases)
 		{
 			return tuple[tuple.Length - 1];
 		}
 
+		/// <inheritdoc />
+		public object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
+		{
+			return tuple[tuple.Length - 1];
+		}
+
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public IList TransformList(IList collection)
+		{
+			return collection;
+		}
+
+		/// <inheritdoc />
+		public IList TransformList(IList collection, object[] parameterValues)
 		{
 			return collection;
 		}

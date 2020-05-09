@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data.Common;
@@ -140,11 +141,20 @@ namespace NHibernate.Loader.Criteria
 			return true;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override object GetResultColumnOrRow(object[] row, IResultTransformer customResultTransformer, DbDataReader rs,
 													   ISessionImplementor session)
 		{
 			return ResolveResultTransformer(customResultTransformer)
 				.TransformTuple(GetResultRow(row, rs, session), ResultRowAliases);
+		}
+
+		protected override object GetResultColumnOrRow(object[] row, QueryParameters queryParameters, DbDataReader rs,
+													   ISessionImplementor session)
+		{
+			return ResolveResultTransformer(queryParameters.ResultTransformer)
+				.TransformTuple(GetResultRow(row, rs, session), ResultRowAliases, queryParameters.ParameterValues);
 		}
 
 		protected override object[] GetResultRow(object[] row, DbDataReader rs, ISessionImplementor session)
@@ -249,9 +259,16 @@ namespace NHibernate.Loader.Criteria
 			return lockModesArray;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		public override IList GetResultList(IList results, IResultTransformer resultTransformer)
 		{
 			return ResolveResultTransformer(resultTransformer).TransformList(results);
+		}
+
+		public override IList GetResultList(IList results, QueryParameters queryParameters)
+		{
+			return ResolveResultTransformer(queryParameters.ResultTransformer).TransformList(results, queryParameters.ParameterValues);
 		}
 
 		protected override IEnumerable<IParameterSpecification> GetParameterSpecifications()

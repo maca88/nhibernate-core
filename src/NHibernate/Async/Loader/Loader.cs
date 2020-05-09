@@ -195,9 +195,10 @@ namespace NHibernate.Loader
 			}
 
 			var result = forcedResultTransformer == null
-					   ? await (GetResultColumnOrRowAsync(row, queryParameters.ResultTransformer, resultSet, session, cancellationToken)).ConfigureAwait(false)
+					   ? await (GetResultColumnOrRowAsync(row, queryParameters, resultSet, session, cancellationToken)).ConfigureAwait(false)
 					   : forcedResultTransformer.TransformTuple(await (GetResultRowAsync(row, resultSet, session, cancellationToken)).ConfigureAwait(false),
-																ResultRowAliases);
+																ResultRowAliases,
+																queryParameters.ParameterValues);
 
 			queryCacheResultBuilder?.AddRow(result, row, collections);
 
@@ -442,6 +443,8 @@ namespace NHibernate.Loader
 		/// This empty implementation merely returns its first argument. This is
 		/// overridden by some subclasses.
 		/// </remarks>
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected virtual Task<object> GetResultColumnOrRowAsync(object[] row, IResultTransformer resultTransformer, DbDataReader rs, ISessionImplementor session, CancellationToken cancellationToken)
 		{
 			if (cancellationToken.IsCancellationRequested)
@@ -456,6 +459,25 @@ namespace NHibernate.Loader
 			{
 				return Task.FromException<object>(ex);
 			}
+		}
+
+		/// <summary>
+		/// Get the actual object that is returned in the user-visible result list.
+		/// </summary>
+		/// <remarks>
+		/// This empty implementation merely returns its first argument. This is
+		/// overridden by some subclasses.
+		/// </remarks>
+		protected virtual Task<object> GetResultColumnOrRowAsync(object[] row, QueryParameters queryParameters, DbDataReader rs, ISessionImplementor session, CancellationToken cancellationToken)
+		{
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromCanceled<object>(cancellationToken);
+			}
+			// For avoiding breaking derived classes, call the obsolete method until it is dropped.
+#pragma warning disable 618
+			return GetResultColumnOrRowAsync(row, queryParameters.ResultTransformer, rs, session, cancellationToken);
+#pragma warning restore 618
 		}
 
 		protected virtual Task<object[]> GetResultRowAsync(Object[] row, DbDataReader rs, ISessionImplementor session, CancellationToken cancellationToken)
@@ -1342,7 +1364,7 @@ namespace NHibernate.Loader
 		private async Task<IList> ListIgnoreQueryCacheAsync(ISessionImplementor session, QueryParameters queryParameters, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			return GetResultList(await (DoListAsync(session, queryParameters, cancellationToken)).ConfigureAwait(false), queryParameters.ResultTransformer);
+			return GetResultList(await (DoListAsync(session, queryParameters, cancellationToken)).ConfigureAwait(false), queryParameters);
 		}
 
 		private async Task<IList> ListUsingQueryCacheAsync(ISessionImplementor session, QueryParameters queryParameters, ISet<string> querySpaces, CancellationToken cancellationToken)
@@ -1367,7 +1389,7 @@ namespace NHibernate.Loader
 
 			result = TransformCacheableResults(queryParameters, key.ResultTransformer, result);
 
-			return GetResultList(result, queryParameters.ResultTransformer);
+			return GetResultList(result, queryParameters);
 		}
 
 		private async Task<IList> GetResultFromQueryCacheAsync(

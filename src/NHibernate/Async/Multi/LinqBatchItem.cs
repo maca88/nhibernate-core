@@ -33,7 +33,7 @@ namespace NHibernate.Multi
 				return await (base.GetResultsNonBatchedAsync(cancellationToken)).ConfigureAwait(false);
 			}
 
-			return GetTransformedResults(await (Query.ListAsync(cancellationToken)).ConfigureAwait(false));
+			return GetTransformedResults(await (Query.ListAsync(cancellationToken)).ConfigureAwait(false), Query.ParameterValues);
 		}
 	}
 }

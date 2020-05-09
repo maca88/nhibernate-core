@@ -62,7 +62,7 @@ namespace NHibernate.Multi
 				return base.GetResultsNonBatched();
 			}
 
-			return GetTransformedResults(Query.List());
+			return GetTransformedResults(Query.List(), Query.ParameterValues);
 		}
 
 		protected override List<T> DoGetResults()
@@ -75,15 +75,15 @@ namespace NHibernate.Multi
 					? base.DoGetResults()
 					: GetTypedResults(elementType);
 
-				return GetTransformedResults(transformerList);
+				return GetTransformedResults(transformerList, Query.ParameterValues);
 			}
 
 			return base.DoGetResults();
 		}
 
-		private List<T> GetTransformedResults(IList transformerList)
+		private List<T> GetTransformedResults(IList transformerList, object[] parameterValues)
 		{
-			var res = _postExecuteTransformer.DynamicInvoke(transformerList.AsQueryable());
+			var res = _postExecuteTransformer.DynamicInvoke(transformerList.AsQueryable(), parameterValues);
 			return new List<T>
 			{
 				(T) res

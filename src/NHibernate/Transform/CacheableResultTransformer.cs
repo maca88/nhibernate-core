@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using NHibernate.Engine;
 using NHibernate.SqlCommand;
 using NHibernate.Type;
 using NHibernate.Util;
@@ -11,7 +12,7 @@ namespace NHibernate.Transform
 	/// </summary>
 	/// @author Gail Badner
 	[Serializable]
-	public class CacheableResultTransformer : IResultTransformer
+	public class CacheableResultTransformer : IResultTransformer, IResultTransformerExtended
 	{
 		// Applies to Java original:
 		// would be nice to be able to have this class extend
@@ -206,11 +207,21 @@ namespace NHibernate.Transform
 			InitializeTransformer(includeInTuple, GetIncludeInTransform(transformer, aliases, includeInTuple));
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public object TransformTuple(object[] tuple, string[] aliases)
 		{
 			if (_includeInTuple == null)
 				throw new InvalidOperationException("This transformer is not initialized");
 			return _actualTransformer.TransformTuple(Index(tuple), null);
+		}
+
+		/// <inheritdoc />
+		public object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
+		{
+			if (_includeInTuple == null)
+				throw new InvalidOperationException("This transformer is not initialized");
+			return _actualTransformer.TransformTuple(Index(tuple), null, parameterValues);
 		}
 
 		/// <summary>
@@ -226,10 +237,37 @@ namespace NHibernate.Transform
 		/// <param name="transformer">The transformer for the re-transformation.</param>
 		/// <param name="includeInTuple"></param>
 		/// <returns>transformedResults, with each element re-transformed (if necessary).</returns>
-		public IList RetransformResults(IList transformedResults,
-		                                string[] aliases,
-		                                IResultTransformer transformer,
-		                                bool[] includeInTuple)
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
+		public IList RetransformResults(
+			IList transformedResults,
+			string[] aliases,
+			IResultTransformer transformer,
+			bool[] includeInTuple)
+		{
+			return RetransformResults(transformedResults, aliases, transformer, includeInTuple, null);
+		}
+
+		/// <summary>
+		/// Re-transforms, if necessary, a List of values previously
+		/// transformed by this (or an equivalent) CacheableResultTransformer.
+		/// Each element of the list is re-transformed in place (i.e, List
+		/// elements are replaced with re-transformed values) and the original
+		/// List is returned. If re-transformation is unnecessary, the original List is returned
+		/// unchanged.
+		/// </summary>
+		/// <param name="transformedResults">Results that were previously transformed.</param>
+		/// <param name="aliases">The aliases that correspond to the untransformed tuple.</param>
+		/// <param name="transformer">The transformer for the re-transformation.</param>
+		/// <param name="includeInTuple"></param>
+		/// <param name="parameterValues">The query parameter values.</param>
+		/// <returns>transformedResults, with each element re-transformed (if necessary).</returns>
+		public IList RetransformResults(
+			IList transformedResults,
+			string[] aliases,
+			IResultTransformer transformer,
+			bool[] includeInTuple,
+			object[] parameterValues)
 		{
 			if (transformer == null)
 				throw new ArgumentNullException(nameof(transformer));
@@ -266,7 +304,11 @@ namespace NHibernate.Transform
 						transformedResults[i],
 						_tupleSubsetLength == 1
 						);
-					transformedResults[i] = transformer.TransformTuple(tuple, aliasesToUse);
+					transformedResults[i] = parameterValues == null
+#pragma warning disable 618
+						? transformer.TransformTuple(tuple, aliasesToUse)
+#pragma warning restore 618
+						: transformer.TransformTuple(tuple, aliasesToUse, parameterValues);
 				}
 			}
 
@@ -327,7 +369,15 @@ namespace NHibernate.Transform
 				       : tupleResultTypes;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public IList TransformList(IList list)
+		{
+			return list;
+		}
+
+		/// <inheritdoc />
+		public IList TransformList(IList list, object[] parameterValues)
 		{
 			return list;
 		}

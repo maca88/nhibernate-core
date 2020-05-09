@@ -30,6 +30,7 @@ namespace NHibernate.Impl
 		private readonly List<IType> types = new List<IType>(4);
 		private readonly Dictionary<string, TypedValue> namedParameters = new Dictionary<string, TypedValue>(4);
 		protected readonly Dictionary<string, TypedValue> namedParameterLists = new Dictionary<string, TypedValue>(4);
+		private object[] _parameterValues;
 		private bool cacheable;
 		private string cacheRegion;
 		private bool? readOnly;
@@ -759,6 +760,13 @@ namespace NHibernate.Impl
 			return this;
 		}
 
+		internal void SetParameterValues(object[] parameters)
+		{
+			_parameterValues = parameters;
+		}
+
+		internal object[] ParameterValues => _parameterValues;
+
 		#endregion
 
 		#region Query properties
@@ -1021,7 +1029,8 @@ namespace NHibernate.Impl
 				optionalObject,
 				optionalEntityName,
 				optionalId,
-				resultTransformer)
+				resultTransformer,
+				_parameterValues)
 			{
 				CacheMode = cacheMode
 			};

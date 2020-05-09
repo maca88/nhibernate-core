@@ -73,7 +73,15 @@ namespace NHibernate.Transform
 			return false;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public override object TransformTuple(object[] tuple, String[] aliases)
+		{
+			return TransformTuple(tuple, aliases, null);
+		}
+
+		/// <inheritdoc />
+		public override object TransformTuple(object[] tuple, String[] aliases, object[] parameterValues)
 		{
 			if (aliases == null)
 			{
@@ -104,7 +112,15 @@ namespace NHibernate.Transform
 			return result;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public override IList TransformList(IList collection)
+		{
+			return collection;
+		}
+
+		/// <inheritdoc />
+		public override IList TransformList(IList collection, object[] parameterValues)
 		{
 			return collection;
 		}

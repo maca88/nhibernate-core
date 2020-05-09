@@ -66,12 +66,17 @@ namespace NHibernate.Impl
 
 		#endregion
 
-		public IList TransformList(IList collection)
+		public IList TransformList(IList collection, object[] parameterValues)
 		{
 			if (ExecuteOnEval == null)
 				return collection;
 
-			return ((IEnumerable) ExecuteOnEval.DynamicInvoke(collection)).Cast<T>().ToList();
+			if (ExecuteOnEval.Method.GetParameters().Length == 1)
+			{
+				return ((IEnumerable) ExecuteOnEval.DynamicInvoke(collection)).Cast<T>().ToList();
+			}
+
+			return ((IEnumerable) ExecuteOnEval.DynamicInvoke(collection, parameterValues)).Cast<T>().ToList();
 		}
 	}
 
@@ -81,6 +86,6 @@ namespace NHibernate.Impl
 	{
 		Delegate ExecuteOnEval { get; set; }
 
-		IList TransformList(IList collection);
+		IList TransformList(IList collection, object[] parameterValues);
 	}
 }

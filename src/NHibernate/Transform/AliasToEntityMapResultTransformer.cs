@@ -8,7 +8,15 @@ namespace NHibernate.Transform
 	{
 		internal static readonly AliasToEntityMapResultTransformer Instance = new AliasToEntityMapResultTransformer();
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public override object TransformTuple(object[] tuple, string[] aliases)
+		{
+			return TransformTuple(tuple, aliases, null);
+		}
+
+		/// <inheritdoc />
+		public override object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
 		{
 			IDictionary result = new Hashtable();
 			for (int i = 0; i < tuple.Length; i++)
@@ -24,7 +32,15 @@ namespace NHibernate.Transform
 			return result;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public override IList TransformList(IList collection)
+		{
+			return collection;
+		}
+
+		/// <inheritdoc />
+		public override IList TransformList(IList collection, object[] parameterValues)
 		{
 			return collection;
 		}

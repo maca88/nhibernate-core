@@ -30,6 +30,12 @@ namespace NHibernate.Linq.Visitors
 			ReflectionCache.QueryableMethods.TakeDefinition
 		};
 
+		private static readonly ISet<MethodBase> LockMethods = new HashSet<MethodBase>
+		{
+			ReflectHelper.FastGetMethodDefinition(LinqExtensionMethods.WithLock, default(IQueryable<object>), default(LockMode)),
+			ReflectHelper.FastGetMethodDefinition(LinqExtensionMethods.WithLock, default(IEnumerable<object>), default(LockMode))
+		};
+
 		// Since v5.3
 		[Obsolete("Please use overload with preTransformationResult parameter instead.")]
 		public ExpressionParameterVisitor(ISessionFactoryImplementor sessionFactory)
@@ -86,7 +92,7 @@ namespace NHibernate.Linq.Visitors
 							 ? expression.Method.GetGenericMethodDefinition()
 							 : expression.Method;
 
-			if (PagingMethods.Contains(method) && !_sessionFactory.Dialect.SupportsVariableLimit)
+			if ((PagingMethods.Contains(method) && !_sessionFactory.Dialect.SupportsVariableLimit) || LockMethods.Contains(method))
 			{
 				var query = Visit(expression.Arguments[0]);
 				//TODO 6.0: Remove the below code and return expression
@@ -169,10 +175,11 @@ namespace NHibernate.Linq.Visitors
 
 		private NamedParameter CreateParameter(ConstantExpression expression, object value, IType type)
 		{
+			var index = _parameters.Count;
 			var parameterName = "p" + (_parameters.Count + 1);
 			return IsCollectionType(expression)
-				? new NamedListParameter(parameterName, value, type)
-				: new NamedParameter(parameterName, value, type);
+				? new NamedListParameter(parameterName, value, type, index)
+				: new NamedParameter(parameterName, value, type, index);
 		}
 
 		private static bool IsNullObject(ConstantExpression expression)

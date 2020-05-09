@@ -189,7 +189,7 @@ namespace NHibernate.Impl
 			{
 				for (int i = 0; i < results.Count; i++)
 				{
-					resultCollections[i] = resultTransformer.TransformList((IList)resultCollections[i]);
+					resultCollections[i] = resultTransformer.TransformList((IList)resultCollections[i], parameters[i].ParameterValues);
 				}
 			}
 

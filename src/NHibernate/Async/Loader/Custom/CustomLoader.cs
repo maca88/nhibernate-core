@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------
 
 
+using System;
 using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
@@ -41,6 +42,8 @@ namespace NHibernate.Loader.Custom
 
 		// Not ported: scroll
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override Task<object> GetResultColumnOrRowAsync(object[] row, IResultTransformer resultTransformer, DbDataReader rs,
 		                                               ISessionImplementor session, CancellationToken cancellationToken)
 		{
@@ -49,6 +52,16 @@ namespace NHibernate.Loader.Custom
 				return Task.FromCanceled<object>(cancellationToken);
 			}
 			return rowProcessor.BuildResultRowAsync(row, rs, resultTransformer != null, session, cancellationToken);
+		}
+
+		protected override Task<object> GetResultColumnOrRowAsync(object[] row, QueryParameters queryParameters, DbDataReader rs,
+		                                               ISessionImplementor session, CancellationToken cancellationToken)
+		{
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromCanceled<object>(cancellationToken);
+			}
+			return rowProcessor.BuildResultRowAsync(row, rs, queryParameters.ResultTransformer != null, session, cancellationToken);
 		}
 
 		protected override Task<object[]> GetResultRowAsync(object[] row, DbDataReader rs, ISessionImplementor session, CancellationToken cancellationToken)
@@ -136,7 +149,7 @@ namespace NHibernate.Loader.Custom
 				{
 					return Task.FromResult<object>(Extract(data, resultSet, session));
 				}
-				catch (System.Exception ex)
+				catch (Exception ex)
 				{
 					return Task.FromException<object>(ex);
 				}

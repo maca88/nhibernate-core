@@ -496,14 +496,14 @@ namespace NHibernate.Impl
 			{
 				// Once polymorpic queries aggregated in one result per query (previous loop), use the
 				// MultiQueryTransformer using, as source, the aggregated result.
-				var resultList = GetTransformedResults(rawResultCollections[i]);
+				var resultList = GetTransformedResults(rawResultCollections[i], queries[i].GetParameterValues());
 				resultCollections.Add(resultList);
 			}
 
 			return resultCollections;
 		}
 
-		private  IList GetTransformedResults(IList source)
+		private  IList GetTransformedResults(IList source, object[] parameterValues)
 		{
 			if (resultTransformer == null)
 				return source;
@@ -512,10 +512,10 @@ namespace NHibernate.Impl
 			for (var j = 0; j < source.Count; j++)
 			{
 				var row = source[j] as object[] ?? new[] {source[j]};
-				source[j] = resultTransformer.TransformTuple(row, null);
+				source[j] = resultTransformer.TransformTuple(row, null, parameterValues);
 			}
 
-			return resultTransformer.TransformList(source);
+			return resultTransformer.TransformList(source, parameterValues);
 		}
 
 		protected List<object> DoList()

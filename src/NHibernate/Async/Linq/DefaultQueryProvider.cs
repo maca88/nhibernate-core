@@ -25,10 +25,6 @@ using NHibernate.Param;
 
 namespace NHibernate.Linq
 {
-	public partial interface INhQueryProvider : IQueryProvider
-	{
-		Task<int> ExecuteDmlAsync<T>(QueryMode queryMode, Expression expression, CancellationToken cancellationToken);
-	}
 
 	public partial class DefaultQueryProvider : INhQueryProvider, IQueryProviderWithOptions, ISupportFutureBatchNhQueryProvider
 	{
@@ -61,7 +57,7 @@ namespace NHibernate.Linq
 			{
 				try
 				{
-					return nhQuery.ExpressionToHqlTranslationResults.PostExecuteTransformer.DynamicInvoke(results.AsQueryable());
+					return nhQuery.ExpressionToHqlTranslationResults.PostExecuteTransformer.DynamicInvoke(results.AsQueryable(), query.GetParameterValues());
 				}
 				catch (TargetInvocationException e)
 				{
@@ -104,7 +100,7 @@ namespace NHibernate.Linq
 
 				var query = Session.CreateQuery(nhLinqExpression);
 
-				SetParameters(query, nhLinqExpression.NamedParameters);
+				SetParameters(query, nhLinqExpression.NamedParameters, nhLinqExpression.ParameterValues);
 				_options?.Apply(query);
 				return query.ExecuteUpdateAsync(cancellationToken);
 			}

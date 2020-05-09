@@ -31,17 +31,19 @@ namespace NHibernate.Engine
 		}
 
 		public QueryParameters(IType[] positionalParameterTypes, object[] postionalParameterValues)
-			: this(positionalParameterTypes, postionalParameterValues, null, null, false, false, false, null, null, false, null) {}
+			: this(positionalParameterTypes, postionalParameterValues, null, null, null, false, false, false, null, null, null, null, null) {}
 
 		public QueryParameters(IType[] positionalParameterTypes, object[] postionalParameterValues, object[] collectionKeys)
 			: this(positionalParameterTypes, postionalParameterValues, null, collectionKeys) {}
 
 		public QueryParameters(IType[] positionalParameterTypes, object[] postionalParameterValues, IDictionary<string, TypedValue> namedParameters, object[] collectionKeys)
-			: this(positionalParameterTypes, postionalParameterValues, namedParameters, null, null, false, false, false, null, null, collectionKeys, null) {}
+			: this(positionalParameterTypes, postionalParameterValues, namedParameters, null, null, false, false, false, null, null, collectionKeys, null, null) {}
 
+		// Since v5.3
+		[Obsolete("This constructor has no more usage in NHibernate and will be removed in a future version.")]
 		public QueryParameters(IType[] positionalParameterTypes, object[] positionalParameterValues, IDictionary<string, LockMode> lockModes, RowSelection rowSelection,
 		                       bool isReadOnlyInitialized, bool readOnly, bool cacheable, string cacheRegion, string comment, bool isLookupByNaturalKey, IResultTransformer transformer)
-			: this(positionalParameterTypes, positionalParameterValues, null, lockModes, rowSelection, isReadOnlyInitialized, readOnly, cacheable, cacheRegion, comment, null, transformer)
+			: this(positionalParameterTypes, positionalParameterValues, null, lockModes, rowSelection, isReadOnlyInitialized, readOnly, cacheable, cacheRegion, comment, null, transformer, null)
 		{
 			NaturalKeyLookup = isLookupByNaturalKey;
 		}
@@ -50,15 +52,47 @@ namespace NHibernate.Engine
 		                       bool readOnly, bool cacheable, string cacheRegion, string comment, bool isLookupByNaturalKey, IResultTransformer transformer)
 			: this(
 				TypeHelper.EmptyTypeArray, Array.Empty<object>(), namedParameters, lockModes, rowSelection, isReadOnlyInitialized, readOnly, cacheable, cacheRegion, comment, null,
-				transformer)
+				transformer, null)
 		{
 			// used by CriteriaTranslator
 			NaturalKeyLookup = isLookupByNaturalKey;
 		}
-
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public QueryParameters(IType[] positionalParameterTypes, object[] positionalParameterValues, IDictionary<string, TypedValue> namedParameters,
 		                       IDictionary<string, LockMode> lockModes, RowSelection rowSelection, bool isReadOnlyInitialized, bool readOnly, bool cacheable, string cacheRegion,
 		                       string comment, object[] collectionKeys, IResultTransformer transformer)
+			: this(
+				  positionalParameterTypes, 
+				  positionalParameterValues,
+				  namedParameters,
+				  lockModes,
+				  rowSelection,
+				  isReadOnlyInitialized,
+				  readOnly,
+				  cacheable,
+				  cacheRegion,
+				  comment,
+				  collectionKeys,
+				  transformer,
+				  null)
+		{
+		}
+
+		public QueryParameters(
+			IType[] positionalParameterTypes,
+			object[] positionalParameterValues,
+			IDictionary<string, TypedValue> namedParameters,
+			IDictionary<string, LockMode> lockModes,
+			RowSelection rowSelection,
+			bool isReadOnlyInitialized,
+			bool readOnly,
+			bool cacheable,
+			string cacheRegion,
+			string comment,
+			object[] collectionKeys,
+			IResultTransformer transformer,
+			object[] parameterValues)
 		{
 			PositionalParameterTypes = positionalParameterTypes ?? Array.Empty<IType>();
 			PositionalParameterValues = positionalParameterValues ?? Array.Empty<object>();
@@ -72,14 +106,30 @@ namespace NHibernate.Engine
 			IsReadOnlyInitialized = isReadOnlyInitialized;
 			this.readOnly = readOnly;
 			ResultTransformer = transformer;
+			ParameterValues = parameterValues;
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public QueryParameters(IType[] positionalParameterTypes, object[] positionalParameterValues, IDictionary<string, TypedValue> namedParameters,
 		                       IDictionary<string, LockMode> lockModes, RowSelection rowSelection, bool isReadOnlyInitialized, bool readOnly, bool cacheable, string cacheRegion,
 		                       string comment, object[] collectionKeys, object optionalObject, string optionalEntityName, object optionalId, IResultTransformer transformer)
 			: this(
 				positionalParameterTypes, positionalParameterValues, namedParameters, lockModes, rowSelection, isReadOnlyInitialized, readOnly, cacheable, cacheRegion, comment, collectionKeys,
 				transformer)
+		{
+			OptionalEntityName = optionalEntityName;
+			OptionalId = optionalId;
+			OptionalObject = optionalObject;
+		}
+
+		public QueryParameters(IType[] positionalParameterTypes, object[] positionalParameterValues, IDictionary<string, TypedValue> namedParameters,
+		                       IDictionary<string, LockMode> lockModes, RowSelection rowSelection, bool isReadOnlyInitialized, bool readOnly, bool cacheable, string cacheRegion,
+		                       string comment, object[] collectionKeys, object optionalObject, string optionalEntityName, object optionalId, IResultTransformer transformer,
+							   object[] parameterValues)
+			: this(
+				positionalParameterTypes, positionalParameterValues, namedParameters, lockModes, rowSelection, isReadOnlyInitialized, readOnly, cacheable, cacheRegion, comment, collectionKeys,
+				transformer, parameterValues)
 		{
 			OptionalEntityName = optionalEntityName;
 			OptionalId = optionalId;
@@ -167,6 +217,8 @@ namespace NHibernate.Engine
 
 		public bool HasAutoDiscoverScalarTypes { get; set; }
 
+		public object[] ParameterValues { get; }
+
 		public void LogParameters(ISessionFactoryImplementor factory)
 		{
 			var print = new Printer(factory);
@@ -205,7 +257,7 @@ namespace NHibernate.Engine
 			var copy = new QueryParameters(
 				PositionalParameterTypes, PositionalParameterValues, NamedParameters, LockModes, selection,
 				IsReadOnlyInitialized, readOnly, Cacheable, CacheRegion, Comment, CollectionKeys, OptionalObject,
-				OptionalEntityName, OptionalId, ResultTransformer)
+				OptionalEntityName, OptionalId, ResultTransformer, ParameterValues)
 			{
 				ProcessedSql = ProcessedSql,
 				ProcessedSqlParameters = ProcessedSqlParameters != null ? ProcessedSqlParameters.ToList() : null,

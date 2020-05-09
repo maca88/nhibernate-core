@@ -82,7 +82,7 @@ namespace NHibernate.Impl
 				{
 					var result = List(query.Query);
 					if (query.Future != null)
-						result = query.Future.TransformList(result);
+						result = query.Future.TransformList(result, (query.Query as AbstractQueryImpl)?.ParameterValues);
 					queriesResults.Add(result);
 				}
 
@@ -165,7 +165,7 @@ namespace NHibernate.Impl
 				var batchedQuery = _batchedQueries[_currentIndex];
 				_currentIndex++;
 
-				return batchedQuery.Future?.TransformList(collection) ?? collection;
+				return batchedQuery.Future?.TransformList(collection, null) ?? collection;
 			}
 
 			// We do not really need to override them since this one does not ends in query cache, but a test forces us to.

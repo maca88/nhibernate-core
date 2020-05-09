@@ -5,18 +5,34 @@ using NHibernate.Util;
 namespace NHibernate.Transform
 {
 	[Serializable]
-	public class PassThroughResultTransformer : IResultTransformer, ITupleSubsetResultTransformer
+	public class PassThroughResultTransformer : IResultTransformer, ITupleSubsetResultTransformer, IResultTransformerExtended
 	{
 		internal static readonly PassThroughResultTransformer Instance = new PassThroughResultTransformer();
 
 		#region IResultTransformer Members
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public object TransformTuple(object[] tuple, string[] aliases)
 		{
 			return tuple.Length == 1 ? tuple[0] : tuple;
 		}
 
+		/// <inheritdoc />
+		public object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
+		{
+			return tuple.Length == 1 ? tuple[0] : tuple;
+		}
+
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public IList TransformList(IList collection)
+		{
+			return collection;
+		}
+
+		/// <inheritdoc />
+		public IList TransformList(IList collection, object[] parameterValues)
 		{
 			return collection;
 		}

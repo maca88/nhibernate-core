@@ -15,20 +15,6 @@ using NHibernate.Param;
 
 namespace NHibernate.Linq
 {
-	public partial interface INhQueryProvider : IQueryProvider
-	{
-		//Since 5.2
-		[Obsolete("Replaced by ISupportFutureBatchNhQueryProvider interface")]
-		IFutureEnumerable<TResult> ExecuteFuture<TResult>(Expression expression);
-
-		//Since 5.2
-		[Obsolete("Replaced by ISupportFutureBatchNhQueryProvider interface")]
-		IFutureValue<TResult> ExecuteFutureValue<TResult>(Expression expression);
-		void SetResultTransformerAndAdditionalCriteria(IQuery query, NhLinqExpression nhExpression, IDictionary<string, Tuple<object, IType>> parameters);
-		int ExecuteDml<T>(QueryMode queryMode, Expression expression);
-		Task<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken);
-	}
-
 	// 6.0 TODO: merge into INhQueryProvider.
 	public interface ISupportFutureBatchNhQueryProvider
 	{
@@ -212,9 +198,9 @@ namespace NHibernate.Linq
 				query = Session.CreateFilter(Collection, nhLinqExpression);
 			}
 
-			SetParameters(query, nhLinqExpression.NamedParameters);
+			SetParameters(query, nhLinqExpression.NamedParameters, nhLinqExpression.ParameterValues);
 			_options?.Apply(query);
-			SetResultTransformerAndAdditionalCriteria(query, nhLinqExpression, nhLinqExpression.ParameterValuesByName);
+			SetResultTransformerAndExecuteRegisteredDelegates(query, nhLinqExpression, nhLinqExpression.NamedParameters);
 
 			return nhLinqExpression;
 		}
@@ -229,7 +215,7 @@ namespace NHibernate.Linq
 			{
 				try
 				{
-					return nhQuery.ExpressionToHqlTranslationResults.PostExecuteTransformer.DynamicInvoke(results.AsQueryable());
+					return nhQuery.ExpressionToHqlTranslationResults.PostExecuteTransformer.DynamicInvoke(results.AsQueryable(), query.GetParameterValues());
 				}
 				catch (TargetInvocationException e)
 				{
@@ -253,8 +239,9 @@ namespace NHibernate.Linq
 #pragma warning restore 618
 		}
 
-		private static void SetParameters(IQuery query, IDictionary<string, NamedParameter> parameters)
+		private static void SetParameters(IQuery query, IDictionary<string, NamedParameter> parameters, object[] parameterValues)
 		{
+			query.SetParameterValues(parameterValues);
 			foreach (var parameterName in query.NamedParameters)
 			{
 				// The parameter type will be taken from the parameter metadata
@@ -270,6 +257,8 @@ namespace NHibernate.Linq
 			}
 		}
 
+		// Since v5.3
+		[Obsolete("Use SetResultTransformerAndExecuteRegisteredDelegates method instead")]
 		public virtual void SetResultTransformerAndAdditionalCriteria(IQuery query, NhLinqExpression nhExpression, IDictionary<string, Tuple<object, IType>> parameters)
 		{
 			if (nhExpression.ExpressionToHqlTranslationResults != null)
@@ -283,6 +272,30 @@ namespace NHibernate.Linq
 			}
 		}
 
+		public virtual void SetResultTransformerAndExecuteRegisteredDelegates(IQuery query, NhLinqExpression nhExpression, IDictionary<string, NamedParameter> parameters)
+		{
+			if (nhExpression.ExpressionToHqlTranslationResults == null)
+			{
+				return;
+			}
+
+			// For avoiding breaking derived classes, call the obsolete method until it is dropped.
+#pragma warning disable CS0618
+			var param = parameters.ToDictionary(
+				o => o.Key,
+				o => new Tuple<object, IType>(o.Value.Value, o.Value.Type));
+			SetResultTransformerAndAdditionalCriteria(query, nhExpression, param);
+#pragma warning restore CS0618
+
+			if (nhExpression.ExpressionToHqlTranslationResults.PreQueryExecuteDelegates?.Count > 0)
+			{
+				foreach (var action in nhExpression.ExpressionToHqlTranslationResults.PreQueryExecuteDelegates)
+				{
+					action(query, parameters);
+				}
+			}
+		}
+
 		public int ExecuteDml<T>(QueryMode queryMode, Expression expression)
 		{
 			if (Collection != null)
@@ -292,7 +305,7 @@ namespace NHibernate.Linq
 
 			var query = Session.CreateQuery(nhLinqExpression);
 
-			SetParameters(query, nhLinqExpression.NamedParameters);
+			SetParameters(query, nhLinqExpression.NamedParameters, nhLinqExpression.ParameterValues);
 			_options?.Apply(query);
 			return query.ExecuteUpdate();
 		}

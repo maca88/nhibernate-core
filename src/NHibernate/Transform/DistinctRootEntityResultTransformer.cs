@@ -8,17 +8,33 @@ using NHibernate.Util;
 namespace NHibernate.Transform
 {
 	[Serializable]
-	public class DistinctRootEntityResultTransformer : IResultTransformer, ITupleSubsetResultTransformer
+	public class DistinctRootEntityResultTransformer : IResultTransformer, ITupleSubsetResultTransformer, IResultTransformerExtended
 	{
 		private static readonly INHibernateLogger log = NHibernateLogger.For(typeof(DistinctRootEntityResultTransformer));
 		internal static readonly DistinctRootEntityResultTransformer Instance = new DistinctRootEntityResultTransformer();
 
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public object TransformTuple(object[] tuple, string[] aliases)
 		{
 			return tuple[tuple.Length - 1];
 		}
 
+		/// <inheritdoc />
+		public object TransformTuple(object[] tuple, string[] aliases, object[] parameterValues)
+		{
+			return tuple[tuple.Length - 1];
+		}
+
+		// Since v5.3
+		[Obsolete("Use overload with parameterValues parameter instead.")]
 		public IList TransformList(IList list)
+		{
+			return TransformList(list, null);
+		}
+
+		/// <inheritdoc />
+		public IList TransformList(IList list, object[] parameterValues)
 		{
 			if (list.Count < 2)
 				return list;

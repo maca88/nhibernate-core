@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------
 
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data.Common;
@@ -61,18 +62,28 @@ namespace NHibernate.Loader.Criteria
 			{
 				return ListAsync(session, translator.GetQueryParameters(), querySpaces, cancellationToken);
 			}
-			catch (System.Exception ex)
+			catch (Exception ex)
 			{
 				return Task.FromException<IList>(ex);
 			}
 		}
 
+		// Since v5.3
+		[Obsolete("Use overload with QueryParameters parameter instead.")]
 		protected override async Task<object> GetResultColumnOrRowAsync(object[] row, IResultTransformer customResultTransformer, DbDataReader rs,
 													   ISessionImplementor session, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			return ResolveResultTransformer(customResultTransformer)
 				.TransformTuple(await (GetResultRowAsync(row, rs, session, cancellationToken)).ConfigureAwait(false), ResultRowAliases);
+		}
+
+		protected override async Task<object> GetResultColumnOrRowAsync(object[] row, QueryParameters queryParameters, DbDataReader rs,
+													   ISessionImplementor session, CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			return ResolveResultTransformer(queryParameters.ResultTransformer)
+				.TransformTuple(await (GetResultRowAsync(row, rs, session, cancellationToken)).ConfigureAwait(false), ResultRowAliases, queryParameters.ParameterValues);
 		}
 
 		protected override async Task<object[]> GetResultRowAsync(object[] row, DbDataReader rs, ISessionImplementor session, CancellationToken cancellationToken)
