@@ -1,27 +1,28 @@
 using System;
 using System.Data.Common;
 using NHibernate.Connection;
+using NHibernate.Engine;
 
 namespace NHibernate.Impl
 {
 	[Serializable]
 	partial class NonContextualConnectionAccess : IConnectionAccess
 	{
-		public NonContextualConnectionAccess(string connectionString)
+		private readonly ISessionFactoryImplementor _sessionFactory;
+
+		public NonContextualConnectionAccess(ISessionFactoryImplementor connectionProvider)
 		{
-			ConnectionString = connectionString;
+			_sessionFactory = connectionProvider;
 		}
 
-		public DbConnection GetConnection(IConnectionProvider provider)
+		public DbConnection GetConnection()
 		{
-			return provider.GetConnection(ConnectionString);
+			return _sessionFactory.ConnectionProvider.GetConnection();
 		}
 
-		public void CloseConnection(DbConnection conn, IConnectionProvider provider)
+		public void CloseConnection(DbConnection conn)
 		{
-			provider.CloseConnection(conn);
+			_sessionFactory.ConnectionProvider.CloseConnection(conn);
 		}
-
-		public string ConnectionString { get; }
 	}
 }
