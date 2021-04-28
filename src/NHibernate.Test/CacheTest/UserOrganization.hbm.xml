@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2" 
+				   assembly="NHibernate.Test"
+				   namespace="NHibernate.Test.CacheTest">
+
+
+  <class name="Organization" batch-size="3">
+    <id name="Id" unsaved-value="0">
+      <generator class="native"/>
+    </id>
+    <property name="Name" />
+    <set name="Users" cascade="all-delete-orphan" batch-size="5" inverse="true">
+      <key column="OrganizationId" not-null="true" />
+      <one-to-many class="User" />
+    </set>
+  </class>
+
+  <class name="User" table="Users" batch-size="4">
+    <cache usage="read-write" />
+    <id name="Id" unsaved-value="0">
+      <generator class="native"/>
+    </id>
+    <property name="Name" />
+    <many-to-one name="Organization" column="OrganizationId" class="Organization" not-null="true" />
+  </class>
+
+
+</hibernate-mapping>
